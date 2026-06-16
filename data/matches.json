@@ -1,0 +1,22 @@
+[
+  {"id": 1, "homeTeam": "Argentina", "awayTeam": "Francia", "date": "2026-06-21T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo D", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 2, "homeTeam": "España", "awayTeam": "Brasil", "date": "2026-06-21T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo E", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 3, "homeTeam": "Alemania", "awayTeam": "Holanda", "date": "2026-06-22T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo C", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 4, "homeTeam": "Inglaterra", "awayTeam": "Portugal", "date": "2026-06-22T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo F", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 5, "homeTeam": "Italia", "awayTeam": "Bélgica", "date": "2026-06-23T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo A", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 6, "homeTeam": "Uruguay", "awayTeam": "Colombia", "date": "2026-06-23T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo G", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 7, "homeTeam": "Japón", "awayTeam": "Corea del Sur", "date": "2026-06-24T15:00:00Z", "league": "FIFA World Cup 2026 - Grupo H", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 8, "homeTeam": "Estados Unidos", "awayTeam": "México", "date": "2026-06-24T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo B", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 9, "homeTeam": "Marruecos", "awayTeam": "Nigeria", "date": "2026-06-25T15:00:00Z", "league": "FIFA World Cup 2026 - Grupo I", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 10, "homeTeam": "Croacia", "awayTeam": "Suiza", "date": "2026-06-25T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo K", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 11, "homeTeam": "Senegal", "awayTeam": "Ecuador", "date": "2026-06-25T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo L", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 12, "homeTeam": "Polonia", "awayTeam": "Dinamarca", "date": "2026-06-26T15:00:00Z", "league": "FIFA World Cup 2026 - Grupo J", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 13, "homeTeam": "Turquía", "awayTeam": "Austria", "date": "2026-06-26T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo B", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 14, "homeTeam": "Australia", "awayTeam": "Arabia Saudita", "date": "2026-06-26T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo H", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 15, "homeTeam": "Francia", "awayTeam": "Holanda", "date": "2026-06-27T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo D", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 16, "homeTeam": "Portugal", "awayTeam": "Colombia", "date": "2026-06-27T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo F", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 17, "homeTeam": "Brasil", "awayTeam": "Alemania", "date": "2026-06-28T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo C", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 18, "homeTeam": "Argentina", "awayTeam": "Croacia", "date": "2026-06-28T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo D", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 19, "homeTeam": "España", "awayTeam": "Italia", "date": "2026-06-29T18:00:00Z", "league": "FIFA World Cup 2026 - Grupo A", "homeGoals": null, "awayGoals": null, "status": "upcoming"},
+  {"id": 20, "homeTeam": "Inglaterra", "awayTeam": "Uruguay", "date": "2026-06-29T21:00:00Z", "league": "FIFA World Cup 2026 - Grupo G", "homeGoals": null, "awayGoals": null, "status": "upcoming"}
+]
