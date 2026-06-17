@@ -5,6 +5,7 @@ interface WeatherData {
   humidity: number;
   windSpeed: number;  // km/h
   icon: string;       // emoji
+  city: string;       // resolved city name
 }
 
 const STADIUM_CITIES: Record<string, string> = {
@@ -51,7 +52,7 @@ export async function getVenueWeather(venue: string): Promise<WeatherData | null
     else if (d.includes('cloud')) icon = '☁️';
     else if (d.includes('clear') || d.includes('sunny')) icon = '☀️';
     else if (temp > 28) icon = '🌡️';
-    return { temp, feelsLike, description: desc, humidity, windSpeed, icon };
+    return { temp, feelsLike, description: desc, humidity, windSpeed, icon, city };
   } catch {
     return null;
   }

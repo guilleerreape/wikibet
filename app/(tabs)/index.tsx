@@ -497,7 +497,7 @@ export default function MatchesScreen() {
   // Tick every 30s to force live minute re-render in match cards
   const [liveTick, setLiveTick] = useState(0);
   // Weather for the currently selected match's venue
-  const [matchWeather, setMatchWeather] = useState<{ temp: number; feelsLike: number; description: string; humidity: number; windSpeed: number; icon: string } | null>(null);
+  const [matchWeather, setMatchWeather] = useState<{ temp: number; feelsLike: number; description: string; humidity: number; windSpeed: number; icon: string; city: string } | null>(null);
   // Goal flash: matchId → team that scored last
   const [goalFlash, setGoalFlash] = useState<Record<string, 'home' | 'away' | 'both' | null>>({});
   const prevScoresRef = useRef<Record<string, { home: number; away: number }>>({});;
@@ -598,6 +598,16 @@ export default function MatchesScreen() {
           if (liveData.minute != null) {
             liveMinuteTimestamps.current[match.id] = { minute: liveData.minute, receivedAt: Date.now() };
           }
+
+          // Auto-verify predictions when match just finished (transition live → finished)
+          if (liveData.status === 'finished') {
+            const prevStatus = prevScoresRef.current[match.id];
+            // Only run once on transition (prev was live, now finished)
+            if (prevStatus && liveData.homeScore != null && liveData.awayScore != null) {
+              updateActualResult(match.id, liveData.homeScore, liveData.awayScore).catch(() => {});
+            }
+          }
+
           setLiveScoresMap(prev => ({
             ...prev,
             [match.id]: {
@@ -623,9 +633,9 @@ export default function MatchesScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches.length, selectedComp.id]);
 
-  // ─── Clock tick for live minute display (every 60s) ─────────────────────────
+  // ─── Clock tick for live minute display (every 30s) ─────────────────────────
   useEffect(() => {
-    const ticker = setInterval(() => setLiveTick(t => t + 1), 60 * 1000);
+    const ticker = setInterval(() => setLiveTick(t => t + 1), 30 * 1000);
     return () => clearInterval(ticker);
   }, []);
 
@@ -2080,6 +2090,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   <Text style={{ fontSize: 15 }}>{matchWeather.icon}</Text>
                   <View>
                     <Text style={{ color: '#f9fafb', fontSize: 15, fontWeight: '900', lineHeight: 17 }}>{matchWeather.temp}°C</Text>
+                    <Text style={{ color: '#3b82f6', fontSize: 8, fontWeight: '700', lineHeight: 11 }}>{matchWeather.city}</Text>
                     <Text style={{ color: '#6b7280', fontSize: 8, lineHeight: 10 }}>{matchWeather.description}</Text>
                   </View>
                   <View style={{ borderLeftWidth: 1, borderLeftColor: '#1f2937', paddingLeft: 7 }}>

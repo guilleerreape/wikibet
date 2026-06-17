@@ -49,7 +49,7 @@ function AnimatedWikiTitle() {
         <View style={at.dot} />
       </View>
       <Animated.Text style={[at.tagline, { color: tagColor }]}>
-        IA · Análisis · Pronósticos · Mundial 2026
+        IA · Análisis · Pronósticos
       </Animated.Text>
     </View>
   );
