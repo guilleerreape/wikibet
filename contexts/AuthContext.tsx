@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile]           = useState<Profile | null>(null);
   const [dailyUsage, setDailyUsage]     = useState<DailyUsage>({ ai_analyses: 0, chat_messages: 0 });
   const [loading, setLoading]           = useState(true);
-  const [bypassActive, setBypassActive] = useState(false);
+  const [bypassActive, setBypassActive] = useState(() => readBypass()); // sync init from localStorage
   const [showLoginModal, setShowLoginModal]     = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeReason, setUpgradeReason]       = useState('');
@@ -67,8 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── Inicialización ───────────────────────────────────────────────────────
   useEffect(() => {
-    // Restaurar bypass de sesión anterior
-    if (readBypass()) setBypassActive(true);
+    // bypassActive already initialized synchronously from localStorage above
 
     // Si la URL tiene token de OAuth (implicit flow), esperar a que Supabase lo procese
     const hasOAuthToken = typeof window !== 'undefined' &&

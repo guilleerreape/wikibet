@@ -13,6 +13,7 @@ export interface PredItem {
   market: string;   // 'over0_5' | 'over1_5' | 'over2_5' | 'under2_5' | 'over3_5' | 'under3_5' | 'btts' | 'btts_no' | '1x2'
   label:  string;   // Human-readable
   emoji:  string;   // Display emoji
+  prob?:  number;   // AI confidence % (e.g. 87)
   value?: string;   // For 1x2: 'local'|'empate'|'visitante'
   hit?:   boolean;  // Set after verification
 }
@@ -73,49 +74,50 @@ export function buildConfidentPredictions(predicciones: any): PredItem[] {
   const outcomeLabel =
     outcome === 'local' ? 'Local gana (1X2)' :
     outcome === 'empate' ? 'Empate (1X2)' : 'Visitante gana (1X2)';
-  preds.push({ market: '1x2', label: outcomeLabel, emoji: '🏆', value: outcome });
+  const prob1x2 = Math.max(pL, pD, pA);
+  preds.push({ market: '1x2', label: outcomeLabel, emoji: '🏆', value: outcome, prob: Math.round(prob1x2) });
 
   // ── Over 0.5: incluir si >= 70% ────────────────────────────────────────────
   const over05 = goles.over0_5?.total ?? 90;
   if (over05 >= 70) {
-    preds.push({ market: 'over0_5', label: 'Al menos 1 gol (Over 0.5)', emoji: '⚽' });
+    preds.push({ market: 'over0_5', label: 'Al menos 1 gol (Over 0.5)', emoji: '⚽', prob: Math.round(over05) });
   }
 
   // ── Under 3.5: fácil, incluir si >= 62% ───────────────────────────────────
   const over35raw = goles.over3_5?.total ?? mkts.over3_5 ?? 0;
   const under35 = 100 - over35raw;
   if (under35 >= 62) {
-    preds.push({ market: 'under3_5', label: 'Menos de 3.5 goles', emoji: '🛡️' });
+    preds.push({ market: 'under3_5', label: 'Menos de 3.5 goles', emoji: '🛡️', prob: Math.round(under35) });
   }
 
   // ── Over 1.5 o Under 1.5: incluir el lado confiado si >= 62% ──────────────
   const over15 = goles.over1_5?.total ?? mkts.over1_5 ?? 0;
   if (over15 >= 62) {
-    preds.push({ market: 'over1_5', label: 'Más de 1.5 goles', emoji: '🔥' });
+    preds.push({ market: 'over1_5', label: 'Más de 1.5 goles', emoji: '🔥', prob: Math.round(over15) });
   } else if ((100 - over15) >= 72) {
-    preds.push({ market: 'under1_5', label: 'Menos de 1.5 goles', emoji: '🔒' });
+    preds.push({ market: 'under1_5', label: 'Menos de 1.5 goles', emoji: '🔒', prob: Math.round(100 - over15) });
   }
 
   // ── Over 2.5 o Under 2.5: incluir el lado confiado si >= 58% ──────────────
   const over25 = goles.over2_5?.total ?? mkts.over2_5 ?? 0;
   if (over25 >= 58) {
-    preds.push({ market: 'over2_5', label: 'Más de 2.5 goles', emoji: '💥' });
+    preds.push({ market: 'over2_5', label: 'Más de 2.5 goles', emoji: '💥', prob: Math.round(over25) });
   } else if ((100 - over25) >= 58) {
-    preds.push({ market: 'under2_5', label: 'Menos de 2.5 goles', emoji: '🔒' });
+    preds.push({ market: 'under2_5', label: 'Menos de 2.5 goles', emoji: '🔒', prob: Math.round(100 - over25) });
   }
 
   // ── BTTS Sí o No: incluir el lado confiado si >= 58% ──────────────────────
   const btts   = mkts.btts_si ?? 0;
   const bttsNo = mkts.btts_no ?? (100 - btts);
   if (btts >= 58) {
-    preds.push({ market: 'btts', label: 'Ambos equipos marcan', emoji: '🎯' });
+    preds.push({ market: 'btts', label: 'Ambos equipos marcan', emoji: '🎯', prob: Math.round(btts) });
   } else if (bttsNo >= 58) {
-    preds.push({ market: 'btts_no', label: 'No marcan los dos (BTTS No)', emoji: '🚫' });
+    preds.push({ market: 'btts_no', label: 'No marcan los dos (BTTS No)', emoji: '🚫', prob: Math.round(bttsNo) });
   }
 
   // ── Over 3.5: solo si >= 55% ───────────────────────────────────────────────
   if (over35raw >= 55) {
-    preds.push({ market: 'over3_5', label: 'Más de 3.5 goles', emoji: '🚀' });
+    preds.push({ market: 'over3_5', label: 'Más de 3.5 goles', emoji: '🚀', prob: Math.round(over35raw) });
   }
 
   return preds;

@@ -92,6 +92,152 @@ function getTodayStart(): Date {
   return d;
 }
 
+// ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
+function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
+  const isFinished = match.status === 'finished';
+  const isLive     = match.status === 'live';
+  const hg = match.homeScore ?? 0;
+  const ag = match.awayScore ?? 0;
+
+  const preds    = buildConfidentPredictions(analysis.predicciones);
+  const verified = (isFinished || isLive)
+    ? verifyPredictions(preds, hg, ag)
+    : preds;
+
+  const correct = verified.filter(p => p.hit === true).length;
+  const total   = verified.length;
+  const hitPct  = total > 0 ? Math.round((correct / total) * 100) : null;
+
+  const headerAccent = isFinished
+    ? (hitPct !== null && hitPct >= 65 ? '#22c55e' : '#f59e0b')
+    : '#3b82f6';
+
+  // Animated bar per prediction
+  const PredBar = ({ prob, hit }: { prob?: number; hit?: boolean }) => {
+    const anim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+      Animated.timing(anim, { toValue: prob ?? 0, duration: 700, useNativeDriver: false }).start();
+    }, [prob]);
+    const width = anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+    const barColor = hit === true ? '#22c55e' : hit === false ? '#ef4444' : '#3b82f6';
+    return (
+      <View style={aib.barBg}>
+        <Animated.View style={[aib.barFill, { width, backgroundColor: barColor + 'cc' }]} />
+        {prob !== undefined && (
+          <Text style={aib.barLabel}>{prob}%</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View style={[aib.wrap, { borderColor: headerAccent + '60' }]}>
+      {/* Header */}
+      <View style={[aib.header, { backgroundColor: headerAccent + '18' }]}>
+        <View style={aib.headerLeft}>
+          <Text style={[aib.headerTitle, { color: headerAccent }]}>🤖 APUESTA DE LA IA</Text>
+          <Text style={aib.headerSub}>
+            {isFinished
+              ? `Resultado: ${correct}/${total} pronósticos acertados`
+              : isLive
+              ? `En directo · ${total} pronósticos activos`
+              : `${total} pronósticos con alta confianza`}
+          </Text>
+        </View>
+        {isFinished && hitPct !== null && (
+          <View style={[aib.pctBadge, { backgroundColor: headerAccent + '30', borderColor: headerAccent + '80' }]}>
+            <Text style={[aib.pctText, { color: headerAccent }]}>{hitPct}%</Text>
+          </View>
+        )}
+        {!isFinished && !isLive && (
+          <View style={[aib.pctBadge, { backgroundColor: '#3b82f620', borderColor: '#3b82f660' }]}>
+            <Text style={[aib.pctText, { color: '#3b82f6' }]}>⭐ TOP</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Prediction rows */}
+      {verified.map((p, i) => (
+        <View key={p.market} style={[aib.predRow, i < verified.length - 1 && aib.predBorder]}>
+          <Text style={aib.predEmoji}>{p.emoji}</Text>
+          <View style={aib.predInfo}>
+            <Text style={[aib.predLabel, (isFinished || isLive) && p.hit !== undefined && {
+              color: p.hit ? '#e5e7eb' : '#6b7280',
+            }]}>
+              {p.label}
+            </Text>
+            <PredBar prob={p.prob} hit={isFinished || isLive ? p.hit : undefined} />
+          </View>
+          {(isFinished || isLive) && p.hit !== undefined ? (
+            <Text style={aib.hitIcon}>{p.hit ? '✅' : '❌'}</Text>
+          ) : (
+            <View style={[aib.probChip, p.prob && p.prob >= 80 && aib.probChipHot]}>
+              <Text style={[aib.probChipText, p.prob && p.prob >= 80 && aib.probChipTextHot]}>
+                {p.prob ?? '—'}%
+              </Text>
+            </View>
+          )}
+        </View>
+      ))}
+
+      {/* Footer note */}
+      <View style={aib.footer}>
+        <Text style={aib.footerText}>
+          {isFinished
+            ? `📊 Análisis post-partido · Se registra en % Aciertos IA`
+            : `📌 La IA solo incluye los pronósticos en los que confía más del umbral`}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const aib = StyleSheet.create({
+  wrap: {
+    borderRadius: 14, borderWidth: 1.5,
+    backgroundColor: '#080f1a', marginBottom: 18, overflow: 'hidden',
+  },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  headerLeft: { flex: 1 },
+  headerTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase' },
+  headerSub:   { fontSize: 10, color: '#6b7280', marginTop: 2 },
+  pctBadge: {
+    borderWidth: 1, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4, alignItems: 'center',
+  },
+  pctText: { fontSize: 14, fontWeight: '900' },
+  predRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 10, gap: 10,
+  },
+  predBorder: { borderBottomWidth: 1, borderBottomColor: '#0f1e2e' },
+  predEmoji:  { fontSize: 16, width: 22 },
+  predInfo:   { flex: 1, gap: 4 },
+  predLabel:  { fontSize: 12, fontWeight: '600', color: '#d1d5db' },
+  barBg: {
+    height: 6, backgroundColor: '#1e293b', borderRadius: 3,
+    overflow: 'hidden', position: 'relative', justifyContent: 'center',
+  },
+  barFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 3 },
+  barLabel: { fontSize: 8, color: '#fff', fontWeight: '700', textAlign: 'right', paddingRight: 4, zIndex: 1 },
+  hitIcon: { fontSize: 16, width: 22, textAlign: 'center' },
+  probChip: {
+    backgroundColor: '#1e293b', borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: '#334155',
+  },
+  probChipHot: { backgroundColor: '#1e3a1e', borderColor: '#22c55e60' },
+  probChipText: { fontSize: 11, fontWeight: '800', color: '#94a3b8' },
+  probChipTextHot: { color: '#22c55e' },
+  footer: {
+    backgroundColor: '#050c15', paddingHorizontal: 14, paddingVertical: 7,
+    borderTopWidth: 1, borderTopColor: '#0f1e2e',
+  },
+  footerText: { fontSize: 9, color: '#374151', fontStyle: 'italic' },
+});
+
 // ─── Post-match accuracy banner ───────────────────────────────────────────────
 function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
   const hg = match.homeScore ?? 0;
@@ -533,7 +679,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         <View style={styles.cardFooter}>
           {match.venue ? <Text style={styles.venueText} numberOfLines={1}>📍 {match.venue}</Text> : <View />}
           <Text style={styles.analysisHint}>
-            {isLive ? '🔴 Análisis IA Live' : isFinished ? '📊 Ver resultado' : '🤖 Análisis IA'} →
+            {isLive ? '🔴 Análisis IA Live' : isFinished ? '📊 Ver resultados análisis' : '🤖 Análisis IA'} →
           </Text>
         </View>
       </TouchableOpacity>
@@ -591,6 +737,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             {analysis.importanciaDelPartido}
           </Text>
         </Section>
+
+        {/* PANEL APUESTA DE LA IA — siempre visible (upcoming + played) */}
+        <AiBetPanel match={selectedMatch} analysis={analysis} />
 
         {/* EQUIPOS */}
         <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" delay={80}>

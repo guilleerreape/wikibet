@@ -180,8 +180,7 @@ export default function NoticiasScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Noticias</Text>
+      <View style={styles.subHeader}>
         <Text style={styles.subtitle}>
           Impacto en apuestas · Lesiones · Análisis
           {lastUpdated ? `  ·  🔄 ${lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
@@ -277,12 +276,11 @@ export default function NoticiasScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg.primary },
-  header: {
-    paddingHorizontal: 16, paddingVertical: 14,
+  subHeader: {
+    paddingHorizontal: 16, paddingVertical: 8,
     borderBottomWidth: 1, borderBottomColor: colors.border.subtle, alignItems: 'center',
   },
-  title: { fontSize: 24, fontWeight: 'bold', color: colors.text.primary },
-  subtitle: { fontSize: 12, color: colors.text.muted, marginTop: 4, textAlign: 'center' },
+  subtitle: { fontSize: 12, color: colors.text.muted, textAlign: 'center' },
   filterRow: { flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 10, gap: 6 },
   filterBtn: {
     flex: 1, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6,

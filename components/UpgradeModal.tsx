@@ -46,9 +46,10 @@ export default function UpgradeModal({ visible, onClose, reason }: Props) {
             <Text style={s.planPrice}>4,99 € / mes</Text>
             {[
               '✅ Análisis de IA ilimitados',
-              '✅ Chat sin límites',
-              '✅ Pronósticos avanzados',
-              '✅ Sin publicidad',
+              '✅ Panel Apuesta de la IA en cada partido',
+              '✅ Análisis en tiempo real',
+              '✅ Chat IA sin límites',
+              '✅ Pronósticos avanzados + histórico',
             ].map(f => <Text key={f} style={s.feature}>{f}</Text>)}
           </View>
 
