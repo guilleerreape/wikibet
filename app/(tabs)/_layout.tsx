@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
-import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking, Animated } from 'react-native';
+import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking, Animated, Platform } from 'react-native';
 import { useState, useRef, useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
@@ -42,6 +43,46 @@ const at = StyleSheet.create({
     marginTop: 2,
   },
 });
+
+// ─── Label animado para tabs ──────────────────────────────────────────────────
+// eslint-disable-next-line react/display-name
+const AnimatedTabLabel = ({ label, focused }: { label: string; focused: boolean }) => {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (focused) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+          Animated.timing(anim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+        ])
+      ).start();
+    } else {
+      anim.stopAnimation();
+      anim.setValue(0);
+    }
+    return () => { anim.stopAnimation(); };
+  }, [focused]);
+
+  const animColor = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: focused
+      ? ['#22c55e', '#f59e0b', '#22c55e']
+      : [colors.text.muted, colors.text.muted, colors.text.muted],
+  });
+
+  return (
+    <Animated.Text style={{
+      fontSize: 10,
+      fontWeight: focused ? '800' : '600',
+      color: animColor,
+      marginTop: 1,
+      letterSpacing: focused ? 0.2 : 0,
+    }}>
+      {label}
+    </Animated.Text>
+  );
+};
 
 // ─── Menú desplegable de perfil ───────────────────────────────────────────────
 function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -183,6 +224,11 @@ function UsagePill() {
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  // En móvil web, añadir padding extra para que no tape la barra del navegador
+  const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
+  const tabBarH   = 58 + bottomPad;
+
   return (
     <Tabs
       screenOptions={{
@@ -201,11 +247,14 @@ export default function TabsLayout() {
           backgroundColor: colors.bg.card,
           borderTopColor: colors.border.medium,
           borderTopWidth: 1,
-          paddingBottom: 8, paddingTop: 8, height: 60,
+          paddingBottom: bottomPad,
+          paddingTop: 6,
+          height: tabBarH,
         },
         tabBarActiveTintColor: colors.accent.green,
         tabBarInactiveTintColor: colors.text.muted,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        tabBarLabelStyle: { display: 'none' }, // usamos AnimatedTabLabel manual
+        tabBarIconStyle: { marginBottom: 0 },
       }}
     >
       <Tabs.Screen
@@ -213,13 +262,37 @@ export default function TabsLayout() {
         options={{
           headerTitle: () => <AnimatedWikiTitle />,
           headerTitleAlign: 'center',
-          tabBarLabel: '📊 Partidos',
+          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📊 Partidos" focused={focused} />,
         }}
       />
-      <Tabs.Screen name="value"    options={{ title: '💰 Value Bets',   tabBarLabel: '💰 Value' }} />
-      <Tabs.Screen name="ia"       options={{ title: '🤖 Chat IA',      tabBarLabel: '🤖 IA' }} />
-      <Tabs.Screen name="apuestas" options={{ title: '📒 Mis Apuestas', tabBarLabel: '📒 Apuestas' }} />
-      <Tabs.Screen name="noticias" options={{ title: '📰 Noticias',     tabBarLabel: '📰 Noticias' }} />
+      <Tabs.Screen
+        name="value"
+        options={{
+          title: '💰 Value Bets',
+          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="💰 Value" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="ia"
+        options={{
+          title: '🤖 Chat IA',
+          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="🤖 IA" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="apuestas"
+        options={{
+          title: '📒 Mis Apuestas',
+          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📒 Apuestas" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="noticias"
+        options={{
+          title: '📰 Noticias',
+          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📰 Noticias" focused={focused} />,
+        }}
+      />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
     </Tabs>

@@ -241,7 +241,7 @@ function ResultModal({ bet, onClose, onSave }: {
 
 // ─── Pantalla principal ───────────────────────────────────────────────────────
 export default function ApuestasScreen() {
-  const { user, setShowLoginModal } = useAuth();
+  const { user, isAuthenticated, bypassActive, setShowLoginModal } = useAuth();
   const [bets, setBets]             = useState<Bet[]>([]);
   const [loading, setLoading]       = useState(false);
   const [showSmart, setShowSmart]   = useState(false);
@@ -304,7 +304,7 @@ export default function ApuestasScreen() {
     ]);
   };
 
-  if (!user) {
+  if (!isAuthenticated) {
     return (
       <SafeAreaView style={st.root}>
         <View style={st.emptyState}>
@@ -416,7 +416,7 @@ export default function ApuestasScreen() {
           ))}
           <View style={{ flex: 1 }} />
           <TouchableOpacity style={st.addBtn} onPress={() => {
-            if (!user) { setShowLoginModal(true); return; }
+            if (!isAuthenticated) { setShowLoginModal(true); return; }
             setShowSmart(true);
           }}>
             <Text style={st.addBtnText}>+ Añadir</Text>

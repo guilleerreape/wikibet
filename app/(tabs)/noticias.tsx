@@ -36,11 +36,11 @@ async function analyzeNewsWithAI(news: RealNews[]): Promise<AINewsAnalysis | nul
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
   const newsText = topNews
-    .map((n, i) => `Noticia ${i + 1}: "${n.title}" — ${n.description} | Impacto en apuestas: ${n.bettingImpact}`)
-    .join('\n\n');
+    .map((n, i) => `[${i + 1}] "${n.title}"\n${n.description}\nEquipos: ${n.teams.join(', ') || 'varios'}\nImpacto apuestas: ${n.bettingImpact}`)
+    .join('\n\n---\n\n');
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 14000);
+  const timeoutId = setTimeout(() => controller.abort(), 16000);
 
   try {
     const res = await fetch(CLAUDE_URL, {
@@ -54,35 +54,38 @@ async function analyzeNewsWithAI(news: RealNews[]): Promise<AINewsAnalysis | nul
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 900,
+        max_tokens: 1000,
         messages: [{
           role: 'user',
-          content: `Eres el mejor analista de apuestas deportivas del mundo. Hoy es ${today}, Mundial 2026 en plena fase de grupos.
+          content: `Eres el analista de apuestas deportivas más preciso del mundo. Hoy es ${today}, Mundial 2026 en plena fase de grupos.
 
-Analiza estas noticias ACTUALES y dame un análisis PROSPECTIVO (hacia el futuro, no el pasado) en ESPAÑOL sobre:
-- Posibles bajas por lesión/molestias que afecten los PRÓXIMOS partidos
-- Posibles formaciones y cambios tácticos esperados
-- Qué mercados de apuestas tienen valor por estas novedades
-- Cambios esperados en cuotas por estas informaciones
-- La apuesta con más valor para HOY o MAÑANA
+Analiza ESTAS NOTICIAS ESPECÍFICAS con datos concretos y dame recomendaciones de apuesta PRECISAS (no genéricas).
 
-Responde en JSON estricto:
+Para cada noticia debes:
+1. Identificar el partido o partidos afectados y CUÁNDO se juegan
+2. Decir exactamente qué baja o novedad táctica impacta
+3. Dar UNA apuesta concreta con cuota estimada (p.ej: "Victoria Francia @1.65", "Over 2.5 goles @1.90")
+4. Explicar por qué esa cuota tiene valor ahora mismo
+
+En la conclusión: da LA MEJOR APUESTA del día con cuota aproximada, porcentaje de confianza y razonamiento de 2 líneas.
+
+Responde SOLO con JSON:
 {
-  "resumen": "Resumen prospectivo en 2 frases sobre qué esperar en los próximos partidos",
+  "resumen": "2 frases MUY CONCRETAS sobre el panorama de hoy: qué equipos tienen ventaja/desventaja por estas noticias",
   "comentarios": [
     {
-      "noticia": "título corto",
-      "analisis": "análisis en 2 frases mirando hacia adelante: qué puede cambiar en los próximos partidos",
-      "impactoApuesta": "mercados concretos que se ven afectados y cómo apostar"
+      "noticia": "título de la noticia",
+      "analisis": "análisis específico: qué partido afecta, cuándo, qué jugador/cambio, qué probabilidades cambian",
+      "impactoApuesta": "apuesta CONCRETA con cuota y razonamiento. Ej: Over 2.5 Francia-Senegal @1.85 — sin Mané Senegal pierde su referencia atacante"
     }
   ],
-  "conclusion": "LA apuesta con más valor para hoy/mañana basada en estas noticias, con razonamiento"
+  "conclusion": "APUESTA TOP: [selección] @ [cuota estimada] — Confianza X% — [razonamiento de 2 líneas con datos específicos]"
 }
 
-NOTICIAS DE HOY:
+NOTICIAS ESPECÍFICAS DE HOY (${today}):
 ${newsText}
 
-IMPORTANTE: Responde SOLO con el JSON. Enfócate en lo que está POR VENIR, no en resultados ya conocidos.`,
+IMPORTANTE: Responde SOLO con JSON. Sé CONCRETO con nombres, cuotas y partidos reales. NADA GENÉRICO.`,
         }],
       }),
     });

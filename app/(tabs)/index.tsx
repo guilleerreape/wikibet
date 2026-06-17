@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,6 +11,7 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC } from '@/services/espnMatchService';
@@ -19,6 +20,30 @@ import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
+const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+
+// ─── Título animado "COMENTARIO IA" ──────────────────────────────────────────
+function AnimatedCommentTitle() {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1600, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 1600, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+  const color = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#22c55e', '#60a5fa', '#22c55e'],
+  });
+  return (
+    <Animated.Text style={[styles.commentTitleAnim, { color }]}>
+      🤖 COMENTARIO IA
+    </Animated.Text>
+  );
+}
+
 const TEAM_FLAGS: Record<string, string> = {
   // CONMEBOL
   Argentina: '🇦🇷', Brasil: '🇧🇷', Uruguay: '🇺🇾', Colombia: '🇨🇴',
@@ -192,7 +217,7 @@ function Section({ icon, title, children, accent }: { icon: string; title: strin
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function MatchesScreen() {
-  const { user, trackAnalysis, setShowLoginModal } = useAuth();
+  const { user, isAuthenticated, trackAnalysis, setShowLoginModal } = useAuth();
   const [quickBet, setQuickBet] = useState<QuickBetData | null>(null);
   const [selectedComp, setSelectedComp] = useState<Competition>(COMPETITIONS[0]);
   const [matches, setMatches] = useState<CompetitionMatch[]>([]);
@@ -206,6 +231,8 @@ export default function MatchesScreen() {
   const [analysis, setAnalysis] = useState<AdvancedMatchAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState(false);
+  const [postMatchComment, setPostMatchComment] = useState<string | null>(null);
+  const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
 
   const loadData = useCallback(async (comp: Competition) => {
     setLoadingMatches(true);
@@ -243,19 +270,76 @@ export default function MatchesScreen() {
     setFiltered(result);
   }, [matches, searchTerm, showPast]);
 
+  const generatePostMatchComment = async (match: CompetitionMatch, anal: AdvancedMatchAnalysis) => {
+    if (!CLAUDE_API_KEY) return;
+    setPostMatchCommentLoading(true);
+    const hg = match.homeScore ?? 0;
+    const ag = match.awayScore ?? 0;
+    const total = hg + ag;
+    const pred = anal.predicciones;
+    const pHome = pred.probabilidades.victoriaLocal;
+    const pDraw = pred.probabilidades.empate;
+    const pAway = pred.probabilidades.victoriaVisitante;
+    const predictedOutcome = pHome >= pDraw && pHome >= pAway ? match.homeTeam
+      : pDraw >= pHome && pDraw >= pAway ? 'empate' : match.awayTeam;
+    const actualOutcome = hg > ag ? match.homeTeam : hg === ag ? 'empate' : match.awayTeam;
+    const resultOk = predictedOutcome.toLowerCase() === actualOutcome.toLowerCase();
+    const over25Ok = (pred.mercados?.over2_5 ?? 0) >= 50 ? total > 2 : total <= 2;
+    const bttsOk = (pred.mercados?.btts_si ?? 0) >= 50 ? (hg > 0 && ag > 0) : !(hg > 0 && ag > 0);
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': CLAUDE_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 400,
+          messages: [{
+            role: 'user',
+            content: `Partido terminado: ${match.homeTeam} ${hg}-${ag} ${match.awayTeam}.
+
+Nuestra IA predijo:
+- Resultado más probable: ${predictedOutcome} → ${resultOk ? '✅ ACERTADO' : '❌ FALLADO'} (resultado real: ${actualOutcome})
+- Over 2.5 goles: ${(pred.mercados?.over2_5 ?? 0)}% de probabilidad → ${over25Ok ? '✅ ACERTADO' : '❌ FALLADO'} (${total} goles)
+- BTTS ambos marcan: ${(pred.mercados?.btts_si ?? 0)}% → ${bttsOk ? '✅ ACERTADO' : '❌ FALLADO'}
+- xG esperados: ${pred.golesEsperados?.local ?? '?'} (local) vs ${pred.golesEsperados?.visitante ?? '?'} (visitante)
+
+Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido real vs nuestras predicciones. Menciona si los pronósticos de goles fueron precisos, el resultado táctico, y qué podemos aprender de este partido para las próximas apuestas. Sé específico y analítico. Solo el texto del comentario, sin JSON ni formato.`,
+          }],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPostMatchComment(data.content?.[0]?.text || null);
+      }
+    } catch {}
+    setPostMatchCommentLoading(false);
+  };
+
   const openAnalysis = async (match: CompetitionMatch) => {
-    if (!user) { setShowLoginModal(true); return; }
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
     const ok = await trackAnalysis();
     if (!ok) return;
     setSelectedMatch(match);
     setAnalysis(null);
     setAnalysisError(false);
+    setPostMatchComment(null);
+    setPostMatchCommentLoading(false);
     setAnalysisLoading(true);
     try {
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
         match.homeTeam, match.awayTeam, match.league
       );
       setAnalysis(result);
+      // Comentario IA para partidos ya jugados
+      if (match.status === 'finished') {
+        generatePostMatchComment(match, result);
+      }
     } catch {
       setAnalysisError(true);
     } finally {
@@ -366,7 +450,7 @@ export default function MatchesScreen() {
       <View style={styles.standingsBg}>
         <Text style={styles.standingsTitle}>{selectedComp.emoji} Clasificación — {selectedComp.shortName}</Text>
         <TableHead />
-        {standings.slice(0, 8).map((row, i) => <StandingsRow key={row.team} row={row} i={i} />)}
+        {standings.map((row, i) => <StandingsRow key={row.team} row={row} i={i} />)}
       </View>
     );
   };
@@ -445,8 +529,21 @@ export default function MatchesScreen() {
     return (
       <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
 
-        {/* RESULTADO FINAL (partido finalizado) */}
-        {isFinished && <PostMatchBanner match={selectedMatch} analysis={analysis} />}
+        {/* COMENTARIO IA — overlay exclusivo para partidos terminados */}
+        {isFinished && (
+          <View style={styles.commentOverlay}>
+            <AnimatedCommentTitle />
+            {postMatchCommentLoading ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                <ActivityIndicator size="small" color="#60a5fa" />
+                <Text style={styles.commentLoadingText}>Analizando el partido terminado...</Text>
+              </View>
+            ) : postMatchComment ? (
+              <Text style={styles.commentText}>{postMatchComment}</Text>
+            ) : null}
+            <PostMatchBanner match={selectedMatch} analysis={analysis} />
+          </View>
+        )}
 
         {/* EN DIRECTO */}
         {isLive && <LiveBanner match={selectedMatch} analysis={analysis} />}
@@ -1237,6 +1334,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent.green + '25', borderRadius: 8,
   },
   confText: { fontSize: 13, fontWeight: '700', color: colors.text.primary },
+  // Comentario IA overlay
+  commentOverlay: {
+    backgroundColor: '#060e1a', borderRadius: 14, padding: 16, marginBottom: 16,
+    borderWidth: 2, borderColor: '#3b82f680',
+  },
+  commentTitleAnim: {
+    fontSize: 14, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10,
+  },
+  commentLoadingText: { fontSize: 12, color: '#9ca3af', fontStyle: 'italic' },
+  commentText: {
+    fontSize: 13, color: '#d1d5db', lineHeight: 20, marginBottom: 14,
+    borderLeftWidth: 3, borderLeftColor: '#3b82f6', paddingLeft: 10,
+  },
   // Post-match banner
   postMatchBanner: {
     backgroundColor: colors.bg.card, borderRadius: 12, padding: 14, marginBottom: 16,
