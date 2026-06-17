@@ -232,31 +232,29 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                   </View>
                 )}
 
-                {/* ── 1X2 desglose ── */}
-                <View style={s.section}>
-                  <Text style={[s.sectionLabel, { marginBottom: 8 }]}>📋 Desglose resultado 1X2</Text>
-                  <View style={s.cardWrap}>
-                    {([
-                      { label: '1 · Victoria local',     key: 'victorias' as const, emoji: '🏠', color: '#22c55e' },
-                      { label: 'X · Empate',             key: 'empates'   as const, emoji: '🤝', color: '#f59e0b' },
-                      { label: '2 · Victoria visitante', key: 'visitante' as const, emoji: '✈️', color: '#60a5fa' },
-                    ]).map((r, i) => {
-                      const d = stats[r.key];
-                      return (
-                        <View key={r.key} style={s.sub1x2Row}>
-                          <Text style={s.mktEmoji}>{r.emoji}</Text>
+                {/* ── 1X2 compacto V/X/D ── */}
+                {(() => {
+                  const v = stats.victorias, x = stats.empates, d2 = stats.visitante;
+                  const total   = v.predicted + x.predicted + d2.predicted;
+                  const correct = v.correct   + x.correct   + d2.correct;
+                  const pct     = total > 0 ? Math.round((correct / total) * 100) : 0;
+                  return (
+                    <View style={s.section}>
+                      <View style={s.cardWrap}>
+                        <View style={s.sub1x2Row}>
+                          <Text style={s.mktEmoji}>🏆</Text>
                           <View style={s.mktInfo}>
-                            <Text style={s.mktLabel}>{r.label}</Text>
-                            <Text style={s.mktCount}>{d.correct}/{d.predicted}</Text>
+                            <Text style={s.mktLabel}>V / X / D</Text>
+                            <Text style={s.mktCount}>{correct}/{total}</Text>
                           </View>
                           <View style={s.mktBar}>
-                            <AnimBar pct={d.pct} color={r.color} height={18} delay={i * 150} />
+                            <AnimBar pct={pct} color={pct >= 60 ? '#22c55e' : '#f59e0b'} height={18} delay={100} />
                           </View>
                         </View>
-                      );
-                    })}
-                  </View>
-                </View>
+                      </View>
+                    </View>
+                  );
+                })()}
 
                 {/* ── Cómo funciona ── */}
                 <View style={s.howBox}>
