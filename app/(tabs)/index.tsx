@@ -382,7 +382,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       const predicted = outcomeFromProbs(
         probs.victoriaLocal, probs.empate, probs.victoriaVisitante
       );
-      // Save 4 markets: 1X2 + over1.5 + over2.5 + btts (first write wins)
+      // Save all 7 markets that appear in PostMatchBanner (first write wins)
+      const g = result.predicciones.goles ?? {};
       savePrediction(
         match.id,
         match.league,
@@ -391,9 +392,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         match.date,
         predicted,
         {
-          pred_over15: (mkts.over1_5  ?? 0) >= 50,
-          pred_over25: (mkts.over2_5  ?? 0) >= 50,
-          pred_btts:   (mkts.btts_si  ?? 0) >= 50,
+          pred_over05:  (g.over0_5?.total ?? 95) >= 50,
+          pred_over15:  (mkts.over1_5 ?? 0) >= 50,
+          pred_over25:  (mkts.over2_5 ?? 0) >= 50,
+          pred_under25: (mkts.over2_5 ?? 0) < 50,      // complement
+          pred_btts:    (mkts.btts_si ?? 0) >= 50,
+          pred_over35:  (mkts.over3_5 ?? 0) >= 50,
         }
       );
       // If match already finished, also record the actual result
