@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { useChat } from '@/hooks/useChat';
+import { useAuth } from '@/contexts/AuthContext';
+import { FREE_LIMITS } from '@/services/supabase';
 
 // ─── Renderizador de mensajes IA ──────────────────────────────────────────────
 function MessageRenderer({ text }: { text: string }) {
@@ -159,10 +161,13 @@ const msgStyles = StyleSheet.create({
 
 export default function IAScreen() {
   const { messages, loading, sendMessage, clearMessages, generateDynamicSuggestions } = useChat();
+  const { user, isPremium, dailyUsage, trackChat, setShowLoginModal } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const [inputText, setInputText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+
+  const chatLeft = isPremium ? Infinity : Math.max(0, FREE_LIMITS.chat_messages - dailyUsage.chat_messages);
 
   // Genera sugerencias dinámicas al cargar
   useEffect(() => {
@@ -181,12 +186,18 @@ export default function IAScreen() {
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || loading) return;
+    if (!user) { setShowLoginModal(true); return; }
+    const ok = await trackChat();
+    if (!ok) return;
     setInputText('');
     await sendMessage(text);
   };
 
   const handleSuggestion = async (q: string) => {
     if (loading) return;
+    if (!user) { setShowLoginModal(true); return; }
+    const ok = await trackChat();
+    if (!ok) return;
     setInputText('');
     await sendMessage(q);
   };
@@ -310,6 +321,17 @@ export default function IAScreen() {
           )}
         </ScrollView>
 
+        {/* Usage bar */}
+        {user && !isPremium && (
+          <View style={styles.usageBar}>
+            <Text style={[styles.usageBarText, chatLeft === 0 && { color: colors.accent.red }]}>
+              {chatLeft === 0
+                ? '🔒 Límite diario alcanzado · Actualiza a Premium+'
+                : `💬 ${chatLeft} mensaje${chatLeft === 1 ? '' : 's'} restante${chatLeft === 1 ? '' : 's'} hoy`}
+            </Text>
+          </View>
+        )}
+
         {/* Input */}
         <View style={styles.inputRow}>
           <TextInput
@@ -410,4 +432,9 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.4 },
   sendBtnText: { color: colors.bg.primary, fontWeight: 'bold', fontSize: 20 },
+  usageBar: {
+    backgroundColor: colors.bg.card, paddingHorizontal: 16, paddingVertical: 6,
+    borderTopWidth: 1, borderTopColor: colors.border.subtle,
+  },
+  usageBarText: { fontSize: 12, color: colors.text.muted, textAlign: 'center', fontWeight: '600' },
 });

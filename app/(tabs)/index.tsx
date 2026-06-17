@@ -15,6 +15,7 @@ import {
 import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC } from '@/services/espnMatchService';
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const TEAM_FLAGS: Record<string, string> = {
@@ -188,6 +189,7 @@ function Section({ icon, title, children }: { icon: string; title: string; child
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function MatchesScreen() {
+  const { user, trackAnalysis, setShowLoginModal } = useAuth();
   const [selectedComp, setSelectedComp] = useState<Competition>(COMPETITIONS[0]);
   const [matches, setMatches] = useState<CompetitionMatch[]>([]);
   const [filtered, setFiltered] = useState<CompetitionMatch[]>([]);
@@ -238,6 +240,9 @@ export default function MatchesScreen() {
   }, [matches, searchTerm, showPast]);
 
   const openAnalysis = async (match: CompetitionMatch) => {
+    if (!user) { setShowLoginModal(true); return; }
+    const ok = await trackAnalysis();
+    if (!ok) return;
     setSelectedMatch(match);
     setAnalysis(null);
     setAnalysisError(false);
