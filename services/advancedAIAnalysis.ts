@@ -180,13 +180,20 @@ export const advancedAIAnalysis = {
     const homeTop3 = homePlayers.slice(0, 3);
     const awayTop3 = awayPlayers.slice(0, 3);
 
-    const prompt = `Eres el analista de apuestas deportivas más experto del mundo. Analiza este partido con MÁXIMO DETALLE.
+    const prompt = `Eres el analista de apuestas deportivas más experto del mundo. Tu objetivo principal es MAXIMIZAR LA PRECISIÓN de cada una de tus predicciones.
+
+INSTRUCCIONES DE PRECISIÓN (OBLIGATORIAS):
+- Usa TODO tu conocimiento actualizado sobre ${homeTeam} y ${awayTeam}: forma reciente, lesiones conocidas, jugadores suspendidos, rotaciones probables, dinámica del vestuario, presión clasificatoria y enfrentamientos directos recientes.
+- Para los mercados de goles (+1.5, +2.5, BTTS): analiza el estilo ofensivo/defensivo real de cada equipo, no solo promedios. Considera si algún equipo juega con bloque bajo, si hay goleadores clave lesionados, y el ritmo goleador reciente.
+- Para el resultado 1X2: pondera el factor campo, el momento de forma y la motivación táctica. NO siempre favorecerás al equipo con mejor WinRate si la situación lo contradice.
+- Si tienes información de que un jugador clave está lesionado o en duda, REFLEJA ESO en las probabilidades.
+- Sé específico y realista. Los porcentajes deben reflejar probabilidades reales, no genéricas.
 
 PARTIDO: ${homeTeam} vs ${awayTeam}
 COMPETICIÓN: ${league}
 FECHA: ${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-ESTADÍSTICAS ${homeTeam}: WinRate ${homeTeamData?.winRate || 50}%, avgGoals ${homeTeamData?.avgGoals || 1.5}, avgConceded ${homeTeamData?.avgConceded || 1.2}, formación ${homeTeamData?.formation || '4-3-3'}
-ESTADÍSTICAS ${awayTeam}: WinRate ${awayTeamData?.winRate || 45}%, avgGoals ${awayTeamData?.avgGoals || 1.3}, avgConceded ${awayTeamData?.avgConceded || 1.3}, formación ${awayTeamData?.formation || '4-3-3'}
+DATOS BASE ${homeTeam}: WinRate ${homeTeamData?.winRate || 50}%, avgGoals ${homeTeamData?.avgGoals || 1.5}, avgConceded ${homeTeamData?.avgConceded || 1.2}, formación ${homeTeamData?.formation || '4-3-3'}
+DATOS BASE ${awayTeam}: WinRate ${awayTeamData?.winRate || 45}%, avgGoals ${awayTeamData?.avgGoals || 1.3}, avgConceded ${awayTeamData?.avgConceded || 1.3}, formación ${awayTeamData?.formation || '4-3-3'}
 JUGADORES ${homeTeam}: ${homeTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D'}
 JUGADORES ${awayTeam}: ${awayTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D'}
 ENTRENADORES: ${homeTeamData?.coach || 'N/D'} vs ${awayTeamData?.coach || 'N/D'}
