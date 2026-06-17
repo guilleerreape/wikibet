@@ -172,7 +172,13 @@ export const advancedAIAnalysis = {
   async analyzeMatchComprehensive(
     homeTeam: string,
     awayTeam: string,
-    league: string
+    league: string,
+    sdbContext?: {
+      homeSquad: import('./sportsDbService').SDBSquadPlayer[];
+      awaySquad: import('./sportsDbService').SDBSquadPlayer[];
+      homeForm: import('./sportsDbService').SDBTeamForm;
+      awayForm: import('./sportsDbService').SDBTeamForm;
+    }
   ): Promise<AdvancedMatchAnalysis> {
     const homePlayers = localDataService.getPlayersByTeam(homeTeam);
     const awayPlayers = localDataService.getPlayersByTeam(awayTeam);
@@ -183,6 +189,23 @@ export const advancedAIAnalysis = {
     const awayTopScorer = [...awayPlayers].sort((a, b) => b.goals - a.goals)[0];
     const homeTop3 = homePlayers.slice(0, 3);
     const awayTop3 = awayPlayers.slice(0, 3);
+
+    // Enrich prompt with real TheSportsDB data
+    const homeSquadStr = sdbContext?.homeSquad.length
+      ? sdbContext.homeSquad.slice(0, 15).map(p => `${p.name} (${p.position})`).join(', ')
+      : homeTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D';
+
+    const awaySquadStr = sdbContext?.awaySquad.length
+      ? sdbContext.awaySquad.slice(0, 15).map(p => `${p.name} (${p.position})`).join(', ')
+      : awayTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D';
+
+    const homeFormStr = sdbContext?.homeForm.recentResults.length
+      ? sdbContext.homeForm.recentResults.join(' | ')
+      : 'N/D';
+
+    const awayFormStr = sdbContext?.awayForm.recentResults.length
+      ? sdbContext.awayForm.recentResults.join(' | ')
+      : 'N/D';
 
     const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 

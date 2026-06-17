@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
+import { sportsDbService } from '@/services/sportsDbService';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -567,14 +568,44 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setMatchEvents([]);
     setEstimatedEvents([]);
     setAnalysisLoading(true);
-    // Fetch ESPN match details (events + lineup) — only works for numeric ESPN IDs
-    getMatchDetails(match.leagueId, match.id).then(({ events, lineup }) => {
-      setMatchEvents(events);
-      setMatchLineup(lineup);
-    });
+
+    // ── TheSportsDB: fetch real lineup, events, squad & form in parallel ──────
+    const [sdbContext, sdbLineup, sdbEvents] = await Promise.all([
+      sportsDbService.getMatchContext(match.homeTeam, match.awayTeam, match.id).catch(() => null),
+      sportsDbService.getMatchLineup(match.id, match.homeTeam, match.awayTeam).catch(() => null),
+      sportsDbService.getMatchEvents(match.id, match.homeTeam, match.awayTeam).catch(() => [] as import('@/services/sportsDbService').SDBMatchEvent[]),
+    ]);
+
+    // Apply real lineup if available from TheSportsDB
+    if (sdbLineup && (sdbLineup.homePlayers.length > 0 || sdbLineup.awayPlayers.length > 0)) {
+      setMatchLineup({
+        homeFormation: sdbLineup.homeFormation ?? '4-3-3',
+        awayFormation: sdbLineup.awayFormation ?? '4-3-3',
+        homePlayers: sdbLineup.homePlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
+        awayPlayers: sdbLineup.awayPlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
+      });
+    } else {
+      // Fallback: ESPN numeric IDs (rarely works for WC static IDs)
+      getMatchDetails(match.leagueId, match.id).then(({ events, lineup }) => {
+        if (lineup) setMatchLineup(lineup);
+        if (events.length > 0) setMatchEvents(events);
+      });
+    }
+
+    // Apply real events from TheSportsDB
+    if (sdbEvents.length > 0) {
+      setMatchEvents(sdbEvents.map(e => ({
+        minute: e.minute,
+        type: e.type,
+        team: e.team,
+        player: e.player,
+        detail: e.detail,
+      })));
+    }
+
     try {
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
-        match.homeTeam, match.awayTeam, match.league
+        match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined
       );
       setAnalysis(result);
 
