@@ -244,7 +244,7 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                         <View style={s.sub1x2Row}>
                           <Text style={s.mktEmoji}>🏆</Text>
                           <View style={s.mktInfo}>
-                            <Text style={s.mktLabel}>V / X / D</Text>
+                            <Text style={[s.mktLabel, { color: '#e5e7eb' }]}>V / X / D</Text>
                             <Text style={s.mktCount}>{correct}/{total}</Text>
                           </View>
                           <View style={s.mktBar}>
