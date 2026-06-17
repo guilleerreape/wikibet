@@ -12,6 +12,7 @@ import {
   TextInput,
   ActivityIndicator,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC, getMatchDetails, MatchLineup, MatchEvent } from '@/services/espnMatchService';
@@ -456,6 +457,8 @@ function Section({ icon, title, children, accent, delay = 0 }: { icon: string; t
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function MatchesScreen() {
+  const { width: screenWidth } = useWindowDimensions();
+  const isMobile = screenWidth < 700; // stack vertically on phones
   const { user, isAuthenticated, trackAnalysis, setShowLoginModal } = useAuth();
   const [quickBet, setQuickBet] = useState<QuickBetData | null>(null);
   const [smartBetMatch, setSmartBetMatch] = useState<SmartMatch | null>(null);
@@ -1059,21 +1062,21 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         setEstimatedEvents(estimated);
       }
 
-      // ── Track prediction in Supabase (shared across all users/devices) ──
-      const probs = result.predicciones.probabilidades;
-      const predicted = outcomeFromProbs(
-        probs.victoriaLocal, probs.empate, probs.victoriaVisitante
-      );
-      // Dynamic: AI emits as many confident predictions as it wants
-      const preds = buildConfidentPredictions(result.predicciones);
-      savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
-      savePredTimestamp(match.id);
-      // If match already finished, also record the actual result
-      if (match.status === 'finished' &&
-          match.homeScore !== undefined &&
-          match.awayScore !== undefined) {
-        updateActualResult(match.id, match.homeScore, match.awayScore);
-      }
+      // ── Track prediction in Supabase — wrapped in try/catch so Supabase errors don't break the UI ──
+      try {
+        const probs = result.predicciones.probabilidades;
+        const predicted = outcomeFromProbs(
+          probs.victoriaLocal, probs.empate, probs.victoriaVisitante
+        );
+        const preds = buildConfidentPredictions(result.predicciones);
+        savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
+        savePredTimestamp(match.id);
+        if (match.status === 'finished' &&
+            match.homeScore !== undefined &&
+            match.awayScore !== undefined) {
+          updateActualResult(match.id, match.homeScore, match.awayScore);
+        }
+      } catch { /* Supabase unavailable — analysis still shows */ }
 
       // Comentario IA para partidos ya jugados
       if (match.status === 'finished') {
@@ -2165,9 +2168,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
           {/* ── TODO EL CONTENIDO SCROLLEA JUNTO (campo + análisis) ── */}
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-            {/* PITCH + EVENTOS — se van arriba al hacer scroll */}
+            {/* PITCH + EVENTOS — responsive: side-by-side on web, stacked on mobile */}
             {selectedMatch && (
-              <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 }}>
+              <View style={{
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6,
+              }}>
                 <LineupPitch
                   homeTeam={selectedMatch.homeTeam}
                   awayTeam={selectedMatch.awayTeam}
@@ -2178,7 +2184,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
                   isLoading={false}
                   lineupConfirmed={lineupConfirmed}
+                  pitchWidth={isMobile ? Math.min(screenWidth - 28, 320) : 300}
                 />
+                <View style={isMobile ? { width: '100%' } : { flex: 1 }}>
                 <MatchEventsPanel
                   homeTeam={selectedMatch.homeTeam}
                   awayTeam={selectedMatch.awayTeam}
@@ -2215,6 +2223,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   })()}
                   rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
                 />
+                </View>
               </View>
             )}
 

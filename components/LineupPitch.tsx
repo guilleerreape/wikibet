@@ -17,6 +17,7 @@ export interface LineupPitchProps {
   isLoading?: boolean;
   isUpcoming?: boolean;
   lineupConfirmed?: boolean;
+  pitchWidth?: number;  // override default width for responsive layout
 }
 
 const PITCH_WIDTH = 300;
@@ -45,7 +46,7 @@ function PlayerDot({ player, color }: { player: Player; color: string }) {
   );
 }
 
-function AnimatedBorderPitch({ children }: { children: React.ReactNode }) {
+function AnimatedBorderPitch({ children, width, height }: { children: React.ReactNode; width: number; height: number }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.loop(
@@ -60,7 +61,7 @@ function AnimatedBorderPitch({ children }: { children: React.ReactNode }) {
     outputRange: ['rgba(255,255,255,0.25)', 'rgba(100,200,100,0.6)'],
   });
   return (
-    <Animated.View style={[styles.pitch, { borderColor }]}>
+    <Animated.View style={[styles.pitch, { borderColor, width, height }]}>
       {children}
     </Animated.View>
   );
@@ -76,10 +77,14 @@ export default function LineupPitch({
   isLoading = false,
   isUpcoming = false,
   lineupConfirmed = false,
+  pitchWidth,
 }: LineupPitchProps) {
+  const w = pitchWidth ?? PITCH_WIDTH;
+  const h = Math.round(w * (PITCH_HEIGHT / PITCH_WIDTH)); // keep aspect ratio
+
   if (isLoading) {
     return (
-      <View style={[styles.pitch, { borderColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={[styles.pitch, { width: w, height: h, borderColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Cargando...</Text>
       </View>
     );
@@ -110,7 +115,7 @@ export default function LineupPitch({
 
   return (
     <View style={{ alignItems: 'center' }}>
-      <AnimatedBorderPitch>
+      <AnimatedBorderPitch width={w} height={h}>
         <View style={styles.pitchInner}>
           {/* Pitch markings */}
           <View style={styles.penaltyTop} />

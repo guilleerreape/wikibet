@@ -257,7 +257,7 @@ export default function MatchEventsPanel({
 const styles = StyleSheet.create({
   panel: {
     flex: 1,
-    minHeight: 510,
+    minHeight: 320,
     backgroundColor: '#0d1520',
     borderRadius: 10,
     borderWidth: 1.5,

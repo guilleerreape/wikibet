@@ -141,7 +141,7 @@ export interface AdvancedMatchAnalysis {
 async function callClaudeAPI(prompt: string, maxTokens = 6000): Promise<string> {
   if (!CLAUDE_API_KEY) return '';
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
   try {
     const response = await fetch(`${CLAUDE_API_BASE}/messages`, {
       method: 'POST',
