@@ -23,6 +23,8 @@ function getEventIcon(type: MatchEvent['type']): string {
     case 'yellow': return '🟨';
     case 'red': return '🟥';
     case 'sub': return '↕️';
+    case 'foul': return '⚠️';
+    case 'offside': return '🚩';
     default: return '•';
   }
 }

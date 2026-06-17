@@ -24,6 +24,7 @@ import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
 import { sportsDbService } from '@/services/sportsDbService';
 import { getWcSquad } from '@/services/wcSquads';
+import { getVenueWeather } from '@/services/weatherService';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -491,8 +492,12 @@ export default function MatchesScreen() {
     homeScorers: { name: string; minute: number }[];
     awayScorers: { name: string; minute: number }[];
   }>>({});
+  // Tracks when each live minute was received for dead-reckoning advancement
+  const liveMinuteTimestamps = useRef<Record<string, { minute: number; receivedAt: number }>>({});
   // Tick every 30s to force live minute re-render in match cards
   const [liveTick, setLiveTick] = useState(0);
+  // Weather for the currently selected match's venue
+  const [matchWeather, setMatchWeather] = useState<{ temp: number; feelsLike: number; description: string; humidity: number; windSpeed: number; icon: string } | null>(null);
   // Goal flash: matchId → team that scored last
   const [goalFlash, setGoalFlash] = useState<Record<string, 'home' | 'away' | 'both' | null>>({});
   const prevScoresRef = useRef<Record<string, { home: number; away: number }>>({});;
@@ -589,6 +594,10 @@ export default function MatchesScreen() {
           }
           prevScoresRef.current[match.id] = { home: newHome, away: newAway };
 
+          // Dead-reckoning: store when we received this minute so we can advance it smoothly
+          if (liveData.minute != null) {
+            liveMinuteTimestamps.current[match.id] = { minute: liveData.minute, receivedAt: Date.now() };
+          }
           setLiveScoresMap(prev => ({
             ...prev,
             [match.id]: {
@@ -655,6 +664,15 @@ export default function MatchesScreen() {
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches.length, selectedComp.id]);
+
+  // ─── Auto-update weather every 10 min while modal is open ──────────────────────
+  useEffect(() => {
+    if (!selectedMatch?.venue) return;
+    const weatherInterval = setInterval(() => {
+      getVenueWeather(selectedMatch.venue!).then(w => { if (w) setMatchWeather(w); }).catch(() => {});
+    }, 10 * 60 * 1000);
+    return () => clearInterval(weatherInterval);
+  }, [selectedMatch?.id]);
 
   // ─── Sync selectedMatch score with live data ──────────────────────────────────
   // When live scores update, push them into selectedMatch so modal stays current
@@ -872,7 +890,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setEstimatedEvents([]);
     setSdbCtxRef(null);
     setLineupConfirmed(false);
+    setMatchWeather(null);
     setAnalysisLoading(true);
+
+    // Fetch weather for this match's venue
+    if (match.venue) {
+      getVenueWeather(match.venue).then(w => { if (w) setMatchWeather(w); }).catch(() => {});
+    }
 
     // ── PRE-POPULATE lineup from wcSquads immediately (synchronous — no API wait) ──
     // This ensures the pitch ALWAYS shows players the moment the modal opens.
@@ -1179,20 +1203,29 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const flash = goalFlash[match.id];
     const rawStatus = liveData?.rawStatus;
     const isHalftime = rawStatus === 'HT';
-    // Smart minute: API minute first; fallback to HT-aware elapsed calculation.
-    // rawStatus tells us the period so we don't show 57' during halftime.
+    // Smart minute with dead-reckoning: advance from last known API minute.
+    // API (TheSportsDB free) updates every ~5 min — we drift forward from it.
     const displayMinute = (() => {
-      if (liveData?.minute) return liveData.minute; // API returned a real minute
+      const storedTs = liveMinuteTimestamps.current[match.id];
+      if (storedTs) {
+        const drift = Math.floor((Date.now() - storedTs.receivedAt) / 60000);
+        const estimated = storedTs.minute + drift;
+        if (rawStatus === 'HT') return 45;
+        if (rawStatus === '1H') return Math.min(45, estimated);
+        if (rawStatus === '2H') return Math.min(97, estimated);
+        if (rawStatus === 'ET') return Math.min(120, estimated);
+        return Math.min(97, estimated);
+      }
       if (!isLive) return undefined;
       const elapsed = Math.floor((Date.now() - new Date(match.date).getTime()) / 60000);
       if (rawStatus === 'HT') return 45;
       if (rawStatus === '1H') return Math.min(45, Math.max(1, elapsed));
-      if (rawStatus === '2H') return Math.min(90, 45 + Math.max(0, elapsed - 60));
-      if (rawStatus === 'ET') return 90;
-      // No rawStatus yet: use elapsed but cap at 45 if < 60 min (avoid HT overshoot)
+      if (rawStatus === '2H') return Math.min(97, 45 + Math.max(0, elapsed - 62));
+      if (rawStatus === 'ET') return Math.min(120, elapsed);
+      // No rawStatus: best estimate from elapsed
       if (elapsed <= 47) return Math.min(45, elapsed);
-      if (elapsed <= 62) return 45; // likely HT
-      return Math.min(90, 45 + Math.max(0, elapsed - 62));
+      if (elapsed <= 62) return 45;
+      return Math.min(97, 45 + Math.max(0, elapsed - 62));
     })();
     const isFinished = effectiveStatus === 'finished';
     const predTs = predTimestamps[match.id];
@@ -2032,6 +2065,38 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
           </View>
 
+          {/* ── Weather + venue bar ── */}
+          {selectedMatch && (
+            <View style={{
+              paddingHorizontal: 14, paddingVertical: 6,
+              backgroundColor: '#050d18', borderBottomWidth: 1, borderBottomColor: '#111827',
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <Text style={{ color: '#374151', fontSize: 9, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                📍 {selectedMatch.venue ?? 'Estadio por confirmar'}
+              </Text>
+              {matchWeather ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0f1b2d', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 15 }}>{matchWeather.icon}</Text>
+                  <View>
+                    <Text style={{ color: '#f9fafb', fontSize: 15, fontWeight: '900', lineHeight: 17 }}>{matchWeather.temp}°C</Text>
+                    <Text style={{ color: '#6b7280', fontSize: 8, lineHeight: 10 }}>{matchWeather.description}</Text>
+                  </View>
+                  <View style={{ borderLeftWidth: 1, borderLeftColor: '#1f2937', paddingLeft: 7 }}>
+                    <Text style={{ color: '#9ca3af', fontSize: 8, lineHeight: 11 }}>💧 {matchWeather.humidity}%</Text>
+                    <Text style={{ color: '#9ca3af', fontSize: 8, lineHeight: 11 }}>💨 {matchWeather.windSpeed}km/h</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={{ backgroundColor: '#0f1b2d', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                  <Text style={{ color: '#374151', fontSize: 9, fontStyle: 'italic' }}>
+                    {selectedMatch.venue ? 'Cargando clima...' : '🌍 Clima no disponible'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {selectedMatch && predTimestamps[selectedMatch.id] && selectedMatch.status === 'upcoming' && (
             <View style={{
               paddingHorizontal: 16, paddingVertical: 6,
@@ -2072,14 +2137,28 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   matchDate={selectedMatch.date}
                   liveMinute={(() => {
                     const ld = liveScoresMap[selectedMatch.id];
-                    if (ld?.minute) return ld.minute;
                     const rs = ld?.rawStatus;
-                    if (!rs) return undefined;
+                    const storedTs = liveMinuteTimestamps.current[selectedMatch.id];
+                    if (storedTs) {
+                      const drift = Math.floor((Date.now() - storedTs.receivedAt) / 60000);
+                      const est = storedTs.minute + drift;
+                      if (rs === 'HT') return 45;
+                      if (rs === '1H') return Math.min(45, est);
+                      if (rs === '2H') return Math.min(97, est);
+                      return Math.min(97, est);
+                    }
                     const elapsed = Math.floor((Date.now() - new Date(selectedMatch.date).getTime()) / 60000);
                     if (rs === 'HT') return 45;
                     if (rs === '1H') return Math.min(45, Math.max(1, elapsed));
-                    if (rs === '2H') return Math.min(90, 45 + Math.max(0, elapsed - 60));
-                    return 90;
+                    if (rs === '2H') return Math.min(97, 45 + Math.max(0, elapsed - 62));
+                    // Live but no rawStatus — use elapsed
+                    const st = ld?.status ?? selectedMatch.status;
+                    if (st === 'live' && elapsed > 0) {
+                      if (elapsed <= 47) return Math.min(45, elapsed);
+                      if (elapsed <= 62) return 45;
+                      return Math.min(97, 45 + Math.max(0, elapsed - 62));
+                    }
+                    return undefined;
                   })()}
                   rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
                 />

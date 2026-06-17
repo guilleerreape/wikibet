@@ -110,7 +110,7 @@ export interface SDBMatchLineup {
 
 export interface SDBMatchEvent {
   minute: number;
-  type: 'goal' | 'yellow' | 'red' | 'sub' | 'penalty' | 'owngoal';
+  type: 'goal' | 'yellow' | 'red' | 'sub' | 'penalty' | 'owngoal' | 'foul' | 'offside';
   player: string;
   team: 'home' | 'away';
   detail?: string;
@@ -257,7 +257,22 @@ export const sportsDbService = {
       } else if (typeStr === 'card') {
         type = detail.includes('red') ? 'red' : 'yellow';
       } else if (typeStr === 'subst') {
-        type = 'sub';
+        const minute = parseInt(t.intTime ?? '0');
+        const isHome = (t.strHome ?? 'No') === 'Yes';
+        // strPlayer = player going OFF, strAssist or strComment = player coming ON
+        const playerOn = t.strAssist ?? t.strComment ?? '';
+        events.push({
+          minute,
+          type: 'sub',
+          player: t.strPlayer ?? '',
+          team: isHome ? 'home' : 'away',
+          detail: playerOn ? `${t.strPlayer ?? '?'}→${playerOn}` : t.strComment,
+        });
+        continue;
+      } else if (typeStr === 'foul') {
+        type = 'foul';
+      } else if (typeStr === 'offside') {
+        type = 'offside';
       } else continue;
 
       const minute = parseInt(t.intTime ?? '0');

@@ -403,7 +403,7 @@ const STANDINGS_STATIC: Record<string, StandingEntry[]> = {
 
 export interface MatchEvent {
   minute: number;
-  type: 'goal' | 'yellow' | 'red' | 'penalty' | 'owngoal' | 'sub';
+  type: 'goal' | 'yellow' | 'red' | 'penalty' | 'owngoal' | 'sub' | 'foul' | 'offside';
   team: 'home' | 'away';
   player: string;
   detail?: string;
