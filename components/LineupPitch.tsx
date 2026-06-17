@@ -119,12 +119,10 @@ export default function LineupPitch({
 
         {noPlayers ? (
           <View style={styles.pendingOverlay}>
-            <Text style={styles.pendingEmoji}>{isUpcoming ? '🤖' : '⏳'}</Text>
-            <Text style={styles.pendingText}>
-              {isUpcoming ? 'ALINEACIÓN\nPOSIBLE' : 'ALINEACIÓN\nPENDIENTE'}
-            </Text>
+            <Text style={styles.pendingEmoji}>🤖</Text>
+            <Text style={styles.pendingText}>ALINEACIÓN{'\n'}PROBABLE</Text>
             <Text style={styles.pendingSub}>
-              {isUpcoming ? 'Predicción IA' : 'Sin datos disponibles'}
+              {isUpcoming ? 'IA · Datos de plantilla' : 'Cargando datos...'}
             </Text>
           </View>
         ) : (

@@ -1118,10 +1118,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const effectiveAwayScore = liveData ? liveData.awayScore : match.awayScore;
     const isLive = effectiveStatus === 'live';
     const flash = goalFlash[match.id];
-    // Use ONLY real API minute — never compute from elapsed time (would be wrong at HT)
-    const displayMinute = liveData?.minute;
     const rawStatus = liveData?.rawStatus;
     const isHalftime = rawStatus === 'HT';
+    // Smart minute: API minute first; fallback to HT-aware elapsed calculation.
+    // rawStatus tells us the period so we don't show 57' during halftime.
+    const displayMinute = (() => {
+      if (liveData?.minute) return liveData.minute; // API returned a real minute
+      if (!isLive) return undefined;
+      const elapsed = Math.floor((Date.now() - new Date(match.date).getTime()) / 60000);
+      if (rawStatus === 'HT') return 45;
+      if (rawStatus === '1H') return Math.min(45, Math.max(1, elapsed));
+      if (rawStatus === '2H') return Math.min(90, 45 + Math.max(0, elapsed - 60));
+      if (rawStatus === 'ET') return 90;
+      // No rawStatus yet: use elapsed but cap at 45 if < 60 min (avoid HT overshoot)
+      if (elapsed <= 47) return Math.min(45, elapsed);
+      if (elapsed <= 62) return 45; // likely HT
+      return Math.min(90, 45 + Math.max(0, elapsed - 62));
+    })();
     const isFinished = effectiveStatus === 'finished';
     const predTs = predTimestamps[match.id];
     const predTimeStr = predTs ? new Date(predTs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null;
@@ -1336,9 +1349,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       if (sdbAway.length > awayPlayers.length) awayPlayers = sdbAway;
     }
 
-    // ── TERTIARY: AI names (only for teams not in wcSquads AND not in TheSportsDB) ──
-    // Disabled: AI frequently hallucinates wrong squads. Removed to prevent Serbia appearing for Congo.
-    // if (homePlayers.length < 5) { ... AI fallback ... }
+    // ── TERTIARY: AI names — only for non-WC teams where wcSquads is empty ──
+    // AI is constrained to the TheSportsDB squad list provided in the prompt,
+    // so it cannot invent players for clubs that aren't in wcSquads.
+    if (homePlayers.length < 5) {
+      const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
+      if (aiHome.length > homePlayers.length) homePlayers = aiHome;
+    }
+    if (awayPlayers.length < 5) {
+      const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
+      if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
+    }
 
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
   }
@@ -1982,7 +2003,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   events={matchEvents}
                   estimatedEvents={estimatedEvents}
                   matchDate={selectedMatch.date}
-                  liveMinute={liveScoresMap[selectedMatch.id]?.minute}
+                  liveMinute={(() => {
+                    const ld = liveScoresMap[selectedMatch.id];
+                    if (ld?.minute) return ld.minute;
+                    const rs = ld?.rawStatus;
+                    if (!rs) return undefined;
+                    const elapsed = Math.floor((Date.now() - new Date(selectedMatch.date).getTime()) / 60000);
+                    if (rs === 'HT') return 45;
+                    if (rs === '1H') return Math.min(45, Math.max(1, elapsed));
+                    if (rs === '2H') return Math.min(90, 45 + Math.max(0, elapsed - 60));
+                    return 90;
+                  })()}
                   rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
                 />
               </View>

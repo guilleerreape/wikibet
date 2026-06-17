@@ -298,12 +298,13 @@ REGLAS OBLIGATORIAS:
 
 3. Over/Under DEBEN derivarse de xG con Poisson (no valores genéricos)
 
-4. ALINEACIONES — MUY IMPORTANTE:
-   → Usa nombres REALES de jugadores. Si conoces la plantilla habitual, úsala.
+4. ALINEACIONES — REGLAS ABSOLUTAS:
    → NUNCA pongas "Portero", "Defensa1", "Medio2" — esos no son nombres reales.
-   → Elige los 11 titulares más probables según el entrenador habitual.
-${homeSquadForLineup ? `   → PLANTILLA REAL ${homeTeam} (TheSportsDB): ${homeSquadForLineup}` : ''}
-${awaySquadForLineup ? `   → PLANTILLA REAL ${awayTeam} (TheSportsDB): ${awaySquadForLineup}` : ''}
+   → Si se proporciona PLANTILLA REAL abajo: los 11 titulares DEBEN ser nombres EXACTOS de esa lista. No puedes inventar ningún jugador fuera de ella.
+   → Si NO hay plantilla: usa tu conocimiento real del equipo (jugadores actuales, no retirados).
+   → Selecciona los 11 más probables según el sistema táctico del entrenador y su alineación habitual.
+${homeSquadForLineup ? `   ⚠️ PLANTILLA ${homeTeam} — USA SOLO ESTOS NOMBRES: ${homeSquadForLineup}` : `   → ${homeTeam}: usa tu conocimiento real de la plantilla actual.`}
+${awaySquadForLineup ? `   ⚠️ PLANTILLA ${awayTeam} — USA SOLO ESTOS NOMBRES: ${awaySquadForLineup}` : `   → ${awayTeam}: usa tu conocimiento real de la plantilla actual.`}
 
 ═══════════════════════════════════════
 DATOS DEL PARTIDO
