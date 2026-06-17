@@ -17,6 +17,7 @@ import {
 import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC, getMatchDetails, MatchLineup, MatchEvent } from '@/services/espnMatchService';
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
+import { localDataService } from '@/services/localDataService';
 import LineupPitch from '@/components/LineupPitch';
 import MatchEventsPanel from '@/components/MatchEventsPanel';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1056,8 +1057,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         });
       }
 
-      // Generate estimated events for static/finished matches with no ESPN data
-      if (match.status === 'finished' || match.status === 'live') {
+      // Generate estimated events for all statuses (shows predicted events for upcoming, actual for finished)
+      {
         const estimated = generateEstimatedEvents(match, result);
         setEstimatedEvents(estimated);
       }
@@ -1082,8 +1083,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       if (match.status === 'finished') {
         generatePostMatchComment(match, result);
       }
-    } catch {
-      setAnalysisError(true);
+    } catch (e) {
+      // Never show the error screen — always fall back to local analysis
+      console.warn('[WikiBet] analyzeMatchComprehensive threw unexpectedly, using local fallback:', e);
+      try {
+        const fallback = advancedAIAnalysis.generateLocalAnalysis(
+          match.homeTeam, match.awayTeam, match.league,
+          localDataService.getPlayersByTeam(match.homeTeam),
+          localDataService.getPlayersByTeam(match.awayTeam),
+          localDataService.getTeamByName(match.homeTeam),
+          localDataService.getTeamByName(match.awayTeam),
+        );
+        setAnalysis(fallback);
+        const estimated = generateEstimatedEvents(match, fallback);
+        setEstimatedEvents(estimated);
+      } catch {
+        setAnalysisError(true); // truly last resort
+      }
     } finally {
       setAnalysisLoading(false);
     }
@@ -2184,9 +2200,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
                   isLoading={false}
                   lineupConfirmed={lineupConfirmed}
-                  pitchWidth={isMobile ? Math.min(screenWidth - 28, 320) : 300}
+                  pitchWidth={isMobile ? Math.min(screenWidth * 0.44, 170) : 300}
                 />
-                <View style={isMobile ? { width: '100%' } : { flex: 1 }}>
+                <View style={isMobile ? { width: '100%', minHeight: 300 } : { flex: 1 }}>
                 <MatchEventsPanel
                   homeTeam={selectedMatch.homeTeam}
                   awayTeam={selectedMatch.awayTeam}
