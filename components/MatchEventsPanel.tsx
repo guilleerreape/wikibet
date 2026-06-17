@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   eventsList: {
-    flex: 1,
+    maxHeight: 340,
   },
   eventRow: {
     flexDirection: 'row',

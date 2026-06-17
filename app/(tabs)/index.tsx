@@ -863,13 +863,20 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       setSdbCtxRef({ homeSquad: sdbContext.homeSquad ?? [], awaySquad: sdbContext.awaySquad ?? [] });
     }
 
-    // Apply real lineup if available from TheSportsDB
+    // Apply real lineup from TheSportsDB ONLY if it has MORE players than wcSquads pre-fill.
+    // wcSquads pre-populated 11+11=22; if sdbLineup also has 22, we keep the correct wcSquads.
+    // This prevents wrong TheSportsDB data (e.g. Serbia's squad for Congo) from overriding.
     if (sdbLineup && (sdbLineup.homePlayers.length > 0 || sdbLineup.awayPlayers.length > 0)) {
-      setMatchLineup({
-        homeFormation: sdbLineup.homeFormation ?? '4-3-3',
-        awayFormation: sdbLineup.awayFormation ?? '4-3-3',
-        homePlayers: sdbLineup.homePlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
-        awayPlayers: sdbLineup.awayPlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
+      setMatchLineup(prev => {
+        const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
+        const sdbTotal = sdbLineup.homePlayers.length + sdbLineup.awayPlayers.length;
+        if (sdbTotal <= currentCount) return prev; // wcSquads already has same/more — keep it
+        return {
+          homeFormation: sdbLineup.homeFormation ?? '4-3-3',
+          awayFormation: sdbLineup.awayFormation ?? '4-3-3',
+          homePlayers: sdbLineup.homePlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
+          awayPlayers: sdbLineup.awayPlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
+        };
       });
     } else {
       // Fallback: ESPN numeric IDs (rarely works for WC static IDs)
@@ -1177,7 +1184,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         {isLive && (
           <View style={styles.liveBadge}>
             <Text style={styles.liveText}>
-              {isHalftime ? '⏸️ DESCANSO' : `● EN VIVO${displayMinute ? ` · ${displayMinute}'` : ''}`}
+              {isHalftime ? '⏸️ DESCANSO' : '● EN VIVO'}
             </Text>
           </View>
         )}
@@ -1200,8 +1207,18 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
           </View>
 
-          {/* Score */}
+          {/* Score — minute shown above in small text */}
           <View style={styles.scoreBox}>
+            {isLive && isHalftime && (
+              <Text style={{ color: '#22c55e', fontSize: 9, fontWeight: '700', textAlign: 'center', marginBottom: 2, letterSpacing: 0.5 }}>
+                ⏸ HT
+              </Text>
+            )}
+            {isLive && !isHalftime && (
+              <Text style={{ color: '#9ca3af', fontSize: 10, fontWeight: '600', textAlign: 'center', marginBottom: 1 }}>
+                {displayMinute ? `${displayMinute}'` : '●'}
+              </Text>
+            )}
             {isFinished || isLive ? (
               <Text style={[styles.score, isLive && { color: colors.accent.red }]}>
                 {effectiveHomeScore ?? 0}–{effectiveAwayScore ?? 0}
@@ -1304,29 +1321,24 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         .filter(p => p.name.length > 2 && !GENERIC_RE.test(p.name));
     }
 
-    // ── PRIMARY: TheSportsDB squad (real-time API) ──
-    let homePlayers = buildFromSquad(sdbCtx?.homeSquad ?? []);
-    let awayPlayers = buildFromSquad(sdbCtx?.awaySquad ?? []);
+    // ── PRIMARY: Hardcoded WC 2026 squads (trusted, correct) ──
+    // Check wcSquads FIRST — reliable data that won't hallucinate wrong teams.
+    let homePlayers = buildFromSquad(getWcSquad(homeTeam));
+    let awayPlayers = buildFromSquad(getWcSquad(awayTeam));
 
-    // ── SECONDARY: AI names (only if API squad is thin) ──
-    if (homePlayers.length < 8) {
-      const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
-      if (aiHome.length > homePlayers.length) homePlayers = aiHome;
-    }
-    if (awayPlayers.length < 8) {
-      const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
-      if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
-    }
-
-    // ── TERTIARY: Hardcoded WC 2026 squads (guaranteed fallback) ──
+    // ── SECONDARY: TheSportsDB squad (only if wcSquads didn't cover this team) ──
     if (homePlayers.length < 5) {
-      const wcHome = buildFromSquad(getWcSquad(homeTeam));
-      if (wcHome.length > homePlayers.length) homePlayers = wcHome;
+      const sdbHome = buildFromSquad(sdbCtx?.homeSquad ?? []);
+      if (sdbHome.length > homePlayers.length) homePlayers = sdbHome;
     }
     if (awayPlayers.length < 5) {
-      const wcAway = buildFromSquad(getWcSquad(awayTeam));
-      if (wcAway.length > awayPlayers.length) awayPlayers = wcAway;
+      const sdbAway = buildFromSquad(sdbCtx?.awaySquad ?? []);
+      if (sdbAway.length > awayPlayers.length) awayPlayers = sdbAway;
     }
+
+    // ── TERTIARY: AI names (only for teams not in wcSquads AND not in TheSportsDB) ──
+    // Disabled: AI frequently hallucinates wrong squads. Removed to prevent Serbia appearing for Congo.
+    // if (homePlayers.length < 5) { ... AI fallback ... }
 
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
   }
@@ -1358,9 +1370,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     );
 
     return (
-      <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.modalScroll}>
 
-        {/* Lineup caption (the pitch is rendered outside AnalysisContent, above the AI loading spinner) */}
+        {/* Lineup caption */}
         <Text style={{ color: '#6b7280', fontSize: 10, textAlign: 'center', marginBottom: 10 }}>
           {matchLineup && (matchLineup.homePlayers.length > 0)
             ? (liveScoresMap[selectedMatch!.id]?.status === 'live' || selectedMatch!.status === 'live'
@@ -1836,7 +1848,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         <View style={{ height: 40 }} />
-      </ScrollView>
+      </View>
     );
   };
 
@@ -1946,51 +1958,52 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
           )}
 
-          {/* ── PITCH + EVENTOS: visible siempre (antes que la IA termine) ── */}
-          {selectedMatch && (
-            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6, flexShrink: 0 }}>
-              <LineupPitch
-                homeTeam={selectedMatch.homeTeam}
-                awayTeam={selectedMatch.awayTeam}
-                homeFormation={matchLineup?.homeFormation ?? '4-3-3'}
-                awayFormation={matchLineup?.awayFormation ?? '4-3-3'}
-                homePlayers={matchLineup?.homePlayers ?? []}
-                awayPlayers={matchLineup?.awayPlayers ?? []}
-                isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
-                isLoading={false}
-              />
-              <MatchEventsPanel
-                homeTeam={selectedMatch.homeTeam}
-                awayTeam={selectedMatch.awayTeam}
-                homeScore={liveScoresMap[selectedMatch.id]?.homeScore ?? selectedMatch.homeScore}
-                awayScore={liveScoresMap[selectedMatch.id]?.awayScore ?? selectedMatch.awayScore}
-                status={(liveScoresMap[selectedMatch.id]?.status ?? selectedMatch.status) as 'upcoming' | 'live' | 'finished'}
-                events={matchEvents}
-                estimatedEvents={estimatedEvents}
-                matchDate={selectedMatch.date}
-                liveMinute={liveScoresMap[selectedMatch.id]?.minute}
-                rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
-              />
-            </View>
-          )}
+          {/* ── TODO EL CONTENIDO SCROLLEA JUNTO (campo + análisis) ── */}
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+            {/* PITCH + EVENTOS — se van arriba al hacer scroll */}
+            {selectedMatch && (
+              <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 }}>
+                <LineupPitch
+                  homeTeam={selectedMatch.homeTeam}
+                  awayTeam={selectedMatch.awayTeam}
+                  homeFormation={matchLineup?.homeFormation ?? '4-3-3'}
+                  awayFormation={matchLineup?.awayFormation ?? '4-3-3'}
+                  homePlayers={matchLineup?.homePlayers ?? []}
+                  awayPlayers={matchLineup?.awayPlayers ?? []}
+                  isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
+                  isLoading={false}
+                />
+                <MatchEventsPanel
+                  homeTeam={selectedMatch.homeTeam}
+                  awayTeam={selectedMatch.awayTeam}
+                  homeScore={liveScoresMap[selectedMatch.id]?.homeScore ?? selectedMatch.homeScore}
+                  awayScore={liveScoresMap[selectedMatch.id]?.awayScore ?? selectedMatch.awayScore}
+                  status={(liveScoresMap[selectedMatch.id]?.status ?? selectedMatch.status) as 'upcoming' | 'live' | 'finished'}
+                  events={matchEvents}
+                  estimatedEvents={estimatedEvents}
+                  matchDate={selectedMatch.date}
+                  liveMinute={liveScoresMap[selectedMatch.id]?.minute}
+                  rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
+                />
+              </View>
+            )}
 
-          {/* ── ANÁLISIS IA ── flex:1 so pitch never scrolls away */}
-          <View style={{ flex: 1, overflow: 'hidden' }}>
+            {/* ANÁLISIS IA */}
             {analysisLoading ? (
-              <View style={styles.center}>
+              <View style={{ paddingVertical: 60, alignItems: 'center', gap: 12 }}>
                 <ActivityIndicator size="large" color={colors.accent.green} />
                 <Text style={styles.loadingLabel}>🤖 Analizando con IA...</Text>
                 <Text style={styles.loadingSubLabel}>Generando pronósticos detallados...</Text>
               </View>
             ) : analysisError ? (
-              <View style={styles.center}>
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <Text style={styles.errorText}>⚠️ No se pudo cargar el análisis</Text>
                 <Text style={styles.errorSub}>Verifica tu API key o conexión</Text>
               </View>
             ) : analysis ? (
               <AnalysisContent />
             ) : null}
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </Modal>
 
