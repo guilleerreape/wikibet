@@ -16,6 +16,7 @@ import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC } from '@/services/espnMatchService';
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
+import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const TEAM_FLAGS: Record<string, string> = {
@@ -190,6 +191,7 @@ function Section({ icon, title, children }: { icon: string; title: string; child
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function MatchesScreen() {
   const { user, trackAnalysis, setShowLoginModal } = useAuth();
+  const [quickBet, setQuickBet] = useState<QuickBetData | null>(null);
   const [selectedComp, setSelectedComp] = useState<Competition>(COMPETITIONS[0]);
   const [matches, setMatches] = useState<CompetitionMatch[]>([]);
   const [filtered, setFiltered] = useState<CompetitionMatch[]>([]);
@@ -801,6 +803,19 @@ export default function MatchesScreen() {
                   <Text style={styles.betStat}>Prob: <Text style={{ color: colors.accent.green, fontWeight: 'bold' }}>{bet.probabilidad}%</Text></Text>
                 </View>
                 <Text style={styles.betRazon}>{bet.razonamiento}</Text>
+                {/* Botón añadir apuesta rápida */}
+                <TouchableOpacity
+                  style={styles.quickBetBtn}
+                  onPress={() => setQuickBet({
+                    match:  `${selectedMatch!.homeTeam} vs ${selectedMatch!.awayTeam}`,
+                    league: selectedMatch!.league ?? 'Mundial 2026',
+                    market: `${bet.mercado} — ${bet.seleccion}`,
+                    odds:   bet.cuota,
+                  })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.quickBetBtnText}>📥 Añadir apuesta</Text>
+                </TouchableOpacity>
               </View>
             ))}
           </Section>
@@ -932,6 +947,14 @@ export default function MatchesScreen() {
           ) : null}
         </SafeAreaView>
       </Modal>
+
+      {/* Quick bet modal */}
+      <QuickBetModal
+        visible={!!quickBet}
+        data={quickBet}
+        onClose={() => setQuickBet(null)}
+        onSaved={() => setQuickBet(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -1144,6 +1167,12 @@ const styles = StyleSheet.create({
   betStats: { flexDirection: 'row', gap: 12, marginBottom: 5 },
   betStat: { fontSize: 11, color: colors.text.muted },
   betRazon: { fontSize: 11, color: colors.text.primary, lineHeight: 15, fontStyle: 'italic' },
+  quickBetBtn: {
+    marginTop: 10, backgroundColor: '#22c55e15', borderRadius: 8,
+    paddingVertical: 9, alignItems: 'center',
+    borderWidth: 1, borderColor: '#22c55e40',
+  },
+  quickBetBtnText: { fontSize: 13, fontWeight: '700', color: '#22c55e' },
   // Confidence
   confBox: {
     backgroundColor: colors.bg.card, borderRadius: 8, padding: 12, marginTop: 8,
