@@ -158,6 +158,32 @@ export const sportsDbService = {
     const lineup: any[] = data?.lineup ?? [];
     if (lineup.length === 0) return null;
 
+    // Spanish → English team name aliases for matching TheSportsDB data
+    const ALIASES: Record<string, string> = {
+      'españa': 'spain', 'alemania': 'germany', 'holanda': 'netherlands',
+      'países bajos': 'netherlands', 'argelia': 'algeria', 'marruecos': 'morocco',
+      'francia': 'france', 'suiza': 'switzerland', 'bélgica': 'belgium',
+      'croacia': 'croatia', 'suecia': 'sweden', 'noruega': 'norway',
+      'canadá': 'canada', 'japón': 'japan', 'irán': 'iran', 'turquía': 'turkey',
+      'cabo verde': 'cape verde', 'r.d. congo': 'dr congo', 'rep. dem. congo': 'dr congo',
+      'estados unidos': 'usa', 'méxico': 'mexico', 'panamá': 'panama',
+      'curazao': 'curacao', 'haití': 'haiti', 'túnez': 'tunisia',
+      'sudáfrica': 'south africa', 'irak': 'iraq', 'uzbekistán': 'uzbekistan',
+      'jordania': 'jordan', 'escocia': 'scotland', 'brasil': 'brazil',
+      'portugal': 'portugal', 'argentina': 'argentina', 'colombia': 'colombia',
+      'inglaterra': 'england', 'austria': 'austria', 'senegal': 'senegal',
+      'ghana': 'ghana', 'ecuador': 'ecuador', 'uruguay': 'uruguay',
+      'paraguay': 'paraguay', 'dinamarca': 'denmark', 'bélgica': 'belgium',
+    };
+
+    function normalizeTeamName(name: string): string {
+      const lower = name.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      return ALIASES[lower] ?? lower;
+    }
+
+    const homeNorm = normalizeTeamName(homeTeam);
+    const awayNorm = normalizeTeamName(awayTeam);
+
     const homePlayers: SDBPlayer[] = [];
     const awayPlayers: SDBPlayer[] = [];
     for (const p of lineup) {
@@ -168,16 +194,25 @@ export const sportsDbService = {
         team: p.strTeam,
         cutout: p.strCutout,
       };
-      // Match team by checking if team name contains home/away team name
-      const teamName = (p.strTeam ?? '').toLowerCase();
-      const home = homeTeam.toLowerCase();
-      const away = awayTeam.toLowerCase();
-      if (teamName.includes(home.split(' ')[0]) || home.includes(teamName.split(' ')[0])) {
+      const teamNorm = normalizeTeamName(p.strTeam ?? '');
+      // Improved matching: check normalized names and key words
+      const matchesHome = teamNorm.includes(homeNorm.split(' ')[0]) || homeNorm.includes(teamNorm.split(' ')[0]);
+      const matchesAway = teamNorm.includes(awayNorm.split(' ')[0]) || awayNorm.includes(teamNorm.split(' ')[0]);
+      if (matchesHome && !matchesAway) {
+        homePlayers.push(player);
+      } else if (matchesAway && !matchesHome) {
+        awayPlayers.push(player);
+      } else if (matchesHome) {
+        // Tie-break: check which is a closer match
         homePlayers.push(player);
       } else {
+        // Default: assign to away (ensures all players are accounted for)
         awayPlayers.push(player);
       }
     }
+
+    // Only return if we have a meaningful lineup (at least 3 players for one team)
+    if (homePlayers.length < 3 && awayPlayers.length < 3) return null;
     return { homePlayers: homePlayers.slice(0, 11), awayPlayers: awayPlayers.slice(0, 11) };
   },
 

@@ -410,6 +410,8 @@ export default function MatchesScreen() {
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
   const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
+  // Store TheSportsDB context for squad fallback in lineup building
+  const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
   // Timestamps de última actualización de pronósticos por matchId
   const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
     try {
@@ -567,6 +569,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setMatchLineup(null);
     setMatchEvents([]);
     setEstimatedEvents([]);
+    setSdbCtxRef(null);
     setAnalysisLoading(true);
 
     // ── TheSportsDB: fetch real lineup, events, squad & form in parallel ──────
@@ -575,6 +578,11 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       sportsDbService.getMatchLineup(match.id, match.homeTeam, match.awayTeam).catch(() => null),
       sportsDbService.getMatchEvents(match.id, match.homeTeam, match.awayTeam).catch(() => [] as import('@/services/sportsDbService').SDBMatchEvent[]),
     ]);
+
+    // Save squad context for lineup fallback
+    if (sdbContext) {
+      setSdbCtxRef({ homeSquad: sdbContext.homeSquad ?? [], awaySquad: sdbContext.awaySquad ?? [] });
+    }
 
     // Apply real lineup if available from TheSportsDB
     if (sdbLineup && (sdbLineup.homePlayers.length > 0 || sdbLineup.awayPlayers.length > 0)) {
@@ -838,19 +846,61 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
   };
 
   // ─── Build predicted lineup from AI analysis data ────────────────────────────
-  function buildPredictedLineup(homeTeam: string, awayTeam: string, anal: any): MatchLineup {
+  // Priority: 1) AI alineaciones field with real names, 2) TheSportsDB squad as fallback
+  function buildPredictedLineup(
+    homeTeam: string,
+    awayTeam: string,
+    anal: any,
+    sdbCtx?: { homeSquad: any[]; awaySquad: any[] } | null
+  ): MatchLineup {
     const homeForm = anal?.alineaciones?.local?.formacion ?? '4-3-3';
     const awayForm = anal?.alineaciones?.visitante?.formacion ?? '4-3-3';
-    const homePlayers = (anal?.alineaciones?.local?.titulares ?? []).map((p: any) => ({
-      name: typeof p === 'string' ? (p.split(' ').pop() ?? p) : (p.nombre ?? p.name ?? ''),
-      number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
-      position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
-    }));
-    const awayPlayers = (anal?.alineaciones?.visitante?.titulares ?? []).map((p: any) => ({
-      name: typeof p === 'string' ? (p.split(' ').pop() ?? p) : (p.nombre ?? p.name ?? ''),
-      number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
-      position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
-    }));
+
+    // Generic position labels that should NOT be treated as real player names
+    const GENERIC_LABELS = new Set([
+      'portero','delantero','defensa','medio','centrocampista','extremo','lateral',
+      'mediapunta','mediocentro','interior','goalkeeper','defender','midfielder','forward',
+      'winger','striker','back'
+    ]);
+    function isGenericLabel(name: string): boolean {
+      const n = name.toLowerCase().replace(/[0-9]/g, '').trim();
+      if (n.length <= 2) return true;
+      for (const label of GENERIC_LABELS) {
+        if (n.startsWith(label)) return true;
+      }
+      return false;
+    }
+
+    function extractPlayers(titulares: any[]): { name: string; number: number; position: string }[] {
+      if (!titulares || titulares.length === 0) return [];
+      return titulares
+        .map((p: any) => ({
+          name: typeof p === 'string' ? p : (p.nombre ?? p.name ?? ''),
+          number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
+          position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
+        }))
+        .filter(p => p.name && !isGenericLabel(p.name));
+    }
+
+    let homePlayers = extractPlayers(anal?.alineaciones?.local?.titulares ?? []);
+    let awayPlayers = extractPlayers(anal?.alineaciones?.visitante?.titulares ?? []);
+
+    // Fallback: use TheSportsDB squad when AI didn't give real player names
+    if (homePlayers.length === 0 && sdbCtx?.homeSquad?.length) {
+      homePlayers = sdbCtx.homeSquad.slice(0, 11).map((p: any, i: number) => ({
+        name: p.name ?? p.strPlayer ?? '',
+        number: p.number ?? i + 1,
+        position: p.position ?? '',
+      }));
+    }
+    if (awayPlayers.length === 0 && sdbCtx?.awaySquad?.length) {
+      awayPlayers = sdbCtx.awaySquad.slice(0, 11).map((p: any, i: number) => ({
+        name: p.name ?? p.strPlayer ?? '',
+        number: p.number ?? i + 1,
+        position: p.position ?? '',
+      }));
+    }
+
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
   }
 
@@ -881,7 +931,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
         {/* ALINEACIONES & MARCADOR */}
         {(() => {
-          const effectiveLineup = matchLineup ?? buildPredictedLineup(selectedMatch!.homeTeam, selectedMatch!.awayTeam, analysis);
+          const effectiveLineup = matchLineup ?? buildPredictedLineup(selectedMatch!.homeTeam, selectedMatch!.awayTeam, analysis, sdbCtxRef);
           return (
             <Section icon="🏟️" title="ALINEACIONES & MARCADOR" accent="#10b981" delay={0}>
               <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>

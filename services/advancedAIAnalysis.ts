@@ -167,6 +167,67 @@ async function callClaudeAPI(prompt: string, maxTokens = 6000): Promise<string> 
   }
 }
 
+// ─── Poisson recalibration ────────────────────────────────────────────────────
+// Overrides AI BTTS and Over/Under with mathematically correct Poisson values
+// so results like "Portugal(2.8xG) vs DR Congo(0.4xG) → BTTS 67%" never happen again.
+function recalibrateProbabilities(
+  result: any,
+  sdbContext?: {
+    homeSquad: import('./sportsDbService').SDBSquadPlayer[];
+    awaySquad: import('./sportsDbService').SDBSquadPlayer[];
+    homeForm: import('./sportsDbService').SDBTeamForm;
+    awayForm: import('./sportsDbService').SDBTeamForm;
+  }
+): AdvancedMatchAnalysis {
+  const xGL = Number(result?.predicciones?.golesEsperados?.local) || 1.5;
+  const xGA = Number(result?.predicciones?.golesEsperados?.visitante) || 1.0;
+  const totalXG = xGL + xGA;
+
+  // P(team scores ≥ 1) = 1 - e^(-xG)
+  const pHomeScores = Math.round((1 - Math.exp(-xGL)) * 100);
+  const pAwayScores = Math.round((1 - Math.exp(-xGA)) * 100);
+  const btts = Math.round(pHomeScores * pAwayScores / 100);
+
+  const over15 = poissonOver(totalXG, 1);
+  const over25 = poissonOver(totalXG, 2);
+  const over35 = poissonOver(totalXG, 3);
+
+  if (!result.predicciones) return result;
+
+  result.predicciones.mercados = {
+    ...(result.predicciones.mercados ?? {}),
+    btts_si: btts,
+    btts_no: 100 - btts,
+    over1_5: over15,
+    over2_5: over25,
+    under2_5: 100 - over25,
+    over3_5: over35,
+  };
+
+  // Also recalculate per-line over probabilities for consistency
+  if (result.predicciones.goles) {
+    const xGHome = xGL;
+    const xGAway = xGA;
+    result.predicciones.goles.over1_5 = {
+      local: poissonOver(xGHome, 1),
+      visitante: poissonOver(xGAway, 1),
+      total: over15,
+    };
+    result.predicciones.goles.over2_5 = {
+      local: poissonOver(xGHome, 2),
+      visitante: poissonOver(xGAway, 2),
+      total: over25,
+    };
+    result.predicciones.goles.over3_5 = {
+      local: poissonOver(xGHome, 3),
+      visitante: poissonOver(xGAway, 3),
+      total: over35,
+    };
+  }
+
+  return result as AdvancedMatchAnalysis;
+}
+
 // ─── Servicio principal ───────────────────────────────────────────────────────
 export const advancedAIAnalysis = {
   async analyzeMatchComprehensive(
@@ -209,64 +270,68 @@ export const advancedAIAnalysis = {
 
     const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-    const prompt = `Eres el mejor analista cuantitativo de fútbol del mundo. Debes generar probabilidades PRECISAS y CALIBRADAS para el partido ${homeTeam} vs ${awayTeam}.
+    // Build squad context strings from TheSportsDB data
+    const homeSquadForLineup = sdbContext?.homeSquad.length
+      ? sdbContext.homeSquad.slice(0, 20).map(p => `${p.name} (${p.position})`).join(', ')
+      : null;
+    const awaySquadForLineup = sdbContext?.awaySquad.length
+      ? sdbContext.awaySquad.slice(0, 20).map(p => `${p.name} (${p.position})`).join(', ')
+      : null;
 
-═══════════════════════════════════════════
-PASO 1 — EVALUACIÓN DE CALIDAD (haz esto mentalmente antes del JSON)
-═══════════════════════════════════════════
-Evalúa cada equipo con tu conocimiento real (nivel FIFA, forma reciente, plantilla, lesiones):
-• Calidad de escuadra (1-10): ¿Es un equipo top mundial, mediano o débil?
-• Forma reciente: últimos 5 partidos
-• Fortaleza ofensiva y defensiva real
-• Lesiones/suspensiones conocidas de jugadores clave
+    const prompt = `Eres el mejor analista cuantitativo de fútbol del mundo. Analiza ${homeTeam} vs ${awayTeam}.
 
-REGLAS DE CALIBRACIÓN OBLIGATORIAS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. BTTS = P(local marca) × P(visitante marca)
-   → Si un equipo es muy débil ofensivamente (xG < 0.7), P(marca) < 40%
-   → Ejemplo: Portugal(9/10) vs R.D. Congo(3/10) → btts_si ≈ 20-28%, NO 67%
-   → Ejemplo: España vs Arabia Saudita → btts_si ≈ 18-25%
-   → Solo equipos equilibrados (Brasil vs Francia) pueden tener btts_si > 50%
+═══════════════════════════════════════
+PASO 1 — CALIBRACIÓN (mentalmente antes del JSON)
+═══════════════════════════════════════
+Evalúa calidad real de cada equipo (1-10 nivel FIFA), forma, lesiones conocidas.
 
-2. PROBABILIDADES 1X2 deben sumar EXACTAMENTE 100
-   → Si un equipo es claramente superior (diferencia de calidad ≥ 3/10):
-     • El favorito debe tener ≥ 55% victoria
-     • El empate: 20-28%
-     • El inferior: ≤ 20% victoria
-   → Partidos equilibrados (diferencia ≤ 1/10): 35-45% / 25-30% / 25-35%
+REGLAS OBLIGATORIAS:
+1. BTTS usa fórmula Poisson: btts_si = P(local≥1gol) × P(visitante≥1gol)
+   P(equipo marca) = 1 - e^(-xG_equipo)
+   → ${homeTeam} vs ${awayTeam}: calcula xG de cada equipo y aplica la fórmula
+   → Si diferencia de calidad ≥3 puntos: el inferior tiene xG≤0.7 → P(marca)≤50%
+   → NUNCA pongas btts_si > 50% si un equipo es claramente débil ofensivamente
 
-3. GOLES ESPERADOS basados en nivel real:
-   → Top europeo vs África/Asia débil: xG_local 2.0-3.5, xG_visitante 0.3-0.8
-   → Partidos equilibrados top: xG cada lado 1.2-1.8
-   → Over/Under DEBEN derivarse matemáticamente de los xG (usa distribución Poisson)
+2. PROBABILIDADES 1X2 suman exactamente 100:
+   → Favorito claro (dif. calidad ≥3): ≥55% victoria, empate 20-28%, rival ≤20%
+   → Equilibrados (dif. ≤1): 35-45% / 25-30% / 25-35%
 
-4. NUNCA uses valores genéricos como "btts_si: 52, over2_5: 55" para todos los partidos
-   → Cada partido tiene su perfil único de probabilidades
+3. Over/Under DEBEN derivarse de xG con Poisson (no valores genéricos)
 
-5. JUGADORES Y ALINEACIONES:
-   → Usa tu conocimiento real de las plantillas habituales de cada equipo
-   → Menciona jugadores REALES: Cristiano Ronaldo, Messi, Mbappé, Haaland, etc. cuando aplique
-   → Incluye jugadores con lesiones/dudas conocidas en las listas correspondientes
-   → La formación debe ser la real/habitual del entrenador (ej: Portugal → 4-3-3 con CR7)
+4. ALINEACIONES — MUY IMPORTANTE:
+   → Usa nombres REALES de jugadores. Si conoces la plantilla habitual, úsala.
+   → NUNCA pongas "Portero", "Defensa1", "Medio2" — esos no son nombres reales.
+   → Elige los 11 titulares más probables según el entrenador habitual.
+${homeSquadForLineup ? `   → PLANTILLA REAL ${homeTeam} (TheSportsDB): ${homeSquadForLineup}` : ''}
+${awaySquadForLineup ? `   → PLANTILLA REAL ${awayTeam} (TheSportsDB): ${awaySquadForLineup}` : ''}
 
-═══════════════════════════════════════════
-PARTIDO A ANALIZAR
-═══════════════════════════════════════════
+═══════════════════════════════════════
+DATOS DEL PARTIDO
+═══════════════════════════════════════
 PARTIDO: ${homeTeam} vs ${awayTeam}
-COMPETICIÓN: ${league}
-FECHA: ${today}
-DATOS SISTEMA ${homeTeam}: avgGoals=${homeTeamData?.avgGoals || 'N/D'}, avgConceded=${homeTeamData?.avgConceded || 'N/D'}, winRate=${homeTeamData?.winRate || 'N/D'}%
-DATOS SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, avgConceded=${awayTeamData?.avgConceded || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%
-JUGADORES SISTEMA ${homeTeam}: ${homeTop3.map(p => p.name).join(', ') || 'N/D'}
-JUGADORES SISTEMA ${awayTeam}: ${awayTop3.map(p => p.name).join(', ') || 'N/D'}
+COMPETICIÓN: ${league} | FECHA: ${today}
+FORMA ${homeTeam}: ${homeFormStr}
+FORMA ${awayTeam}: ${awayFormStr}
+REF. SISTEMA ${homeTeam}: avgGoals=${homeTeamData?.avgGoals || 'N/D'}, winRate=${homeTeamData?.winRate || 'N/D'}%
+REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%
 
-⚠️ IMPORTANTE: Los valores del "DATOS SISTEMA" son de referencia. TU CONOCIMIENTO REAL sobre estos equipos prevalece. Si sabes que ${homeTeam} tiene una calidad muy superior, REFLEJA ESO en probabilidades.
+⚠️ Tu conocimiento real prevalece sobre "REF. SISTEMA". Solo menciona jugadores de ${homeTeam} y ${awayTeam}.
 
-⚠️ Solo menciona jugadores/lesiones de ${homeTeam} y ${awayTeam}. NUNCA de otros equipos.
+DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
 
-Devuelve SOLO JSON válido (sin markdown, sin \`\`\`). Todos los números en los campos de probabilidad son ENTEROS 0-100 (no decimales excepto en xG y cuotas). El JSON debe tener este esquema:
+⚡ COMIENZA con "alineaciones" — es el primer campo del JSON. Titulares = 11 nombres reales.
 
 {
+  "alineaciones": {
+    "local": {
+      "formacion": "formación-real-del-entrenador",
+      "titulares": ["NombreReal1", "NombreReal2", "NombreReal3", "NombreReal4", "NombreReal5", "NombreReal6", "NombreReal7", "NombreReal8", "NombreReal9", "NombreReal10", "NombreReal11"]
+    },
+    "visitante": {
+      "formacion": "formación-real-del-entrenador",
+      "titulares": ["NombreReal1", "NombreReal2", "NombreReal3", "NombreReal4", "NombreReal5", "NombreReal6", "NombreReal7", "NombreReal8", "NombreReal9", "NombreReal10", "NombreReal11"]
+    }
+  },
   "resumenEjecutivo": "3-4 frases específicas sobre el partido, contexto y pronóstico clave",
   "importanciaDelPartido": "qué se juegan ambos equipos en esta competición",
   "historialDirecto": {
@@ -298,16 +363,6 @@ Devuelve SOLO JSON válido (sin markdown, sin \`\`\`). Todos los números en los
     "dudosos": [],
     "xG_promedio": 0.0,
     "xGA_promedio": 0.0
-  },
-  "alineaciones": {
-    "local": {
-      "formacion": "4-3-3",
-      "titulares": ["Portero", "Defensa1", "Defensa2", "Defensa3", "Defensa4", "Medio1", "Medio2", "Medio3", "Extremo1", "Delantero", "Extremo2"]
-    },
-    "visitante": {
-      "formacion": "4-2-3-1",
-      "titulares": ["Portero", "Defensa1", "Defensa2", "Defensa3", "Defensa4", "MedDef1", "MedDef2", "Mediapunta1", "Mediapunta2", "Mediapunta3", "Delantero"]
-    }
   },
   "predicciones": {
     "probabilidades": {"victoriaLocal": 0, "empate": 0, "victoriaVisitante": 0},
@@ -395,7 +450,8 @@ Devuelve SOLO JSON válido (sin markdown, sin \`\`\`). Todos los números en los
         const jsonEnd = clean.lastIndexOf('}');
         if (jsonStart >= 0 && jsonEnd > jsonStart) {
           const parsed = JSON.parse(clean.substring(jsonStart, jsonEnd + 1));
-          return parsed;
+          // ── Poisson recalibration: override BTTS and Over/Under with math ──
+          return recalibrateProbabilities(parsed, sdbContext);
         }
       }
     } catch (e) {
