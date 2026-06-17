@@ -11,10 +11,17 @@ interface Props {
   reason?: string;
 }
 
-const STRIPE_URL = 'https://buy.stripe.com/PLACEHOLDER'; // reemplazar con tu link de Stripe
+const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
 
 export default function UpgradeModal({ visible, onClose, reason }: Props) {
-  const { dailyUsage } = useAuth();
+  const { dailyUsage, user } = useAuth();
+
+  function getStripeUrl() {
+    let url = STRIPE_BASE;
+    if (user?.id)    url += `?client_reference_id=${user.id}`;
+    if (user?.email) url += `&prefilled_email=${encodeURIComponent(user.email)}`;
+    return url;
+  }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -47,7 +54,7 @@ export default function UpgradeModal({ visible, onClose, reason }: Props) {
 
           <TouchableOpacity
             style={s.upgradeBtn}
-            onPress={() => { onClose(); Linking.openURL(STRIPE_URL); }}
+            onPress={() => { onClose(); Linking.openURL(getStripeUrl()); }}
             activeOpacity={0.85}
           >
             <Text style={s.upgradeText}>Actualizar a Premium+</Text>

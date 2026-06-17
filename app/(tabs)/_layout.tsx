@@ -5,11 +5,18 @@ import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
 
-const STRIPE_URL = 'https://buy.stripe.com/PLACEHOLDER';
+const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
 
 // ─── Menú desplegable de perfil ───────────────────────────────────────────────
 function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { user, profile, bypassActive, isPremium, dailyUsage, signOut } = useAuth();
+
+  function getStripeUrl() {
+    let url = STRIPE_BASE;
+    if (user?.id)    url += `?client_reference_id=${user.id}`;
+    if (user?.email) url += `&prefilled_email=${encodeURIComponent(user.email)}`;
+    return url;
+  }
 
   const fullName   = profile?.full_name ?? user?.email ?? (bypassActive ? 'Admin' : 'Usuario');
   const email      = user?.email ?? (bypassActive ? 'Acceso con código' : '');
@@ -53,7 +60,7 @@ function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => vo
           {!bypassActive && (
             <TouchableOpacity
               style={m.menuItem}
-              onPress={() => { onClose(); Linking.openURL(STRIPE_URL); }}
+              onPress={() => { onClose(); Linking.openURL(getStripeUrl()); }}
             >
               <Text style={m.menuItemIcon}>⚡</Text>
               <View style={m.menuItemInfo}>
