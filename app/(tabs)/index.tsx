@@ -477,6 +477,10 @@ export default function MatchesScreen() {
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Store TheSportsDB context for squad fallback in lineup building
   const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
+  // Lineup confirmed state (true when sdbLineup has players for an upcoming match)
+  const [lineupConfirmed, setLineupConfirmed] = useState(false);
+  // Pre-fetched confirmed lineups for upcoming matches within 24h
+  const [preMatchLineups, setPreMatchLineups] = useState<Record<string, { lineup: any; confirmed: boolean; checkedAt: number }>>({});
   // Real-time live scores map: matchId → { homeScore, awayScore, status, minute, rawStatus, scorers }
   const [liveScoresMap, setLiveScoresMap] = useState<Record<string, {
     homeScore: number;
@@ -615,6 +619,42 @@ export default function MatchesScreen() {
     const ticker = setInterval(() => setLiveTick(t => t + 1), 60 * 1000);
     return () => clearInterval(ticker);
   }, []);
+
+  // ─── Pre-match lineup auto-check: for matches starting within 24h ────────────
+  // Check if TheSportsDB has the official lineup for upcoming matches
+  useEffect(() => {
+    if (matches.length === 0) return;
+
+    const checkPreMatchLineups = async () => {
+      const now = Date.now();
+      const upcoming24h = matches.filter(m => {
+        if (m.status !== 'upcoming') return false;
+        const diff = new Date(m.date).getTime() - now;
+        return diff > 0 && diff <= 24 * 60 * 60 * 1000;
+      });
+
+      for (const match of upcoming24h.slice(0, 3)) {
+        try {
+          const lineup = await sportsDbService.getMatchLineup(match.id, match.homeTeam, match.awayTeam);
+          if (lineup && (lineup.homePlayers.length >= 8 || lineup.awayPlayers.length >= 8)) {
+            setPreMatchLineups(prev => ({
+              ...prev,
+              [match.id]: {
+                lineup,
+                confirmed: true,
+                checkedAt: Date.now(),
+              },
+            }));
+          }
+        } catch {}
+      }
+    };
+
+    checkPreMatchLineups();
+    const interval = setInterval(checkPreMatchLineups, 10 * 60 * 1000); // check every 10 min
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matches.length, selectedComp.id]);
 
   // ─── Sync selectedMatch score with live data ──────────────────────────────────
   // When live scores update, push them into selectedMatch so modal stays current
@@ -831,6 +871,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setMatchEvents([]);
     setEstimatedEvents([]);
     setSdbCtxRef(null);
+    setLineupConfirmed(false);
     setAnalysisLoading(true);
 
     // ── PRE-POPULATE lineup from wcSquads immediately (synchronous — no API wait) ──
@@ -848,6 +889,18 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         });
       } else {
         setMatchLineup(null);
+      }
+
+      // Check if we have a pre-fetched confirmed lineup for this match
+      const preMatch = preMatchLineups[match.id];
+      if (preMatch?.confirmed && preMatch.lineup) {
+        setMatchLineup({
+          homeFormation: preMatch.lineup.homeFormation ?? '4-3-3',
+          awayFormation: preMatch.lineup.awayFormation ?? '4-3-3',
+          homePlayers: preMatch.lineup.homePlayers.map((p: any) => ({ name: p.name, number: p.number, position: p.position })),
+          awayPlayers: preMatch.lineup.awayPlayers.map((p: any) => ({ name: p.name, number: p.number, position: p.position })),
+        });
+        setLineupConfirmed(true);
       }
     }
 
@@ -878,6 +931,11 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           awayPlayers: sdbLineup.awayPlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
         };
       });
+      // Mark as confirmed if sdbLineup has players AND match hasn't started yet
+      if (match.status === 'upcoming' &&
+          (sdbLineup.homePlayers.length >= 8 || sdbLineup.awayPlayers.length >= 8)) {
+        setLineupConfirmed(true);
+      }
     } else {
       // Fallback: ESPN numeric IDs (rarely works for WC static IDs)
       getMatchDetails(match.leagueId, match.id).then(({ events, lineup }) => {
@@ -899,7 +957,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
     try {
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
-        match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined
+        match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined,
+        match.venue,
       );
       setAnalysis(result);
 
@@ -1963,7 +2022,14 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 {selectedMatch?.awayTeam} {getFlag(selectedMatch?.awayTeam || '')}
               </Text>
             </View>
-            <View style={{ width: 30 }} />
+            <View style={{ width: 70, alignItems: 'flex-end' }}>
+              <Text style={{ color: '#6b7280', fontSize: 10, fontWeight: '600', textTransform: 'capitalize' }}>
+                {selectedMatch && new Date(selectedMatch.date).toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short' })}
+              </Text>
+              <Text style={{ color: '#9ca3af', fontSize: 13, fontWeight: '800' }}>
+                {selectedMatch && new Date(selectedMatch.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
           </View>
 
           {selectedMatch && predTimestamps[selectedMatch.id] && selectedMatch.status === 'upcoming' && (
@@ -1993,6 +2059,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   awayPlayers={matchLineup?.awayPlayers ?? []}
                   isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
                   isLoading={false}
+                  lineupConfirmed={lineupConfirmed}
                 />
                 <MatchEventsPanel
                   homeTeam={selectedMatch.homeTeam}

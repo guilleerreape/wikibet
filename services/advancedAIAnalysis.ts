@@ -1,4 +1,5 @@
 import { localDataService } from './localDataService';
+import { getVenueWeather } from './weatherService';
 
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
 const CLAUDE_API_BASE = 'https://api.anthropic.com/v1';
@@ -239,8 +240,23 @@ export const advancedAIAnalysis = {
       awaySquad: import('./sportsDbService').SDBSquadPlayer[];
       homeForm: import('./sportsDbService').SDBTeamForm;
       awayForm: import('./sportsDbService').SDBTeamForm;
-    }
+    },
+    venue?: string,
   ): Promise<AdvancedMatchAnalysis> {
+    // Fetch weather if venue provided
+    let weatherStr = '';
+    if (venue) {
+      try {
+        const weather = await getVenueWeather(venue);
+        if (weather) {
+          weatherStr = `\nCLIMA EN EL ESTADIO: ${weather.icon} ${weather.temp}°C (sensación ${weather.feelsLike}°C), ${weather.description}, Humedad ${weather.humidity}%, Viento ${weather.windSpeed}km/h.`;
+          if (weather.windSpeed > 30) weatherStr += ' ⚠️ Viento fuerte: reduce precisión en pases largos y córners.';
+          if (weather.temp > 32) weatherStr += ' ⚠️ Calor extremo: puede afectar al ritmo en el 2º tiempo.';
+          if (weather.description.toLowerCase().includes('rain')) weatherStr += ' ⚠️ Lluvia: campo resbaladizo, más errores, puede favorecer marcadores bajos.';
+        }
+      } catch {}
+    }
+
     const homePlayers = localDataService.getPlayersByTeam(homeTeam);
     const awayPlayers = localDataService.getPlayersByTeam(awayTeam);
     const homeTeamData = localDataService.getTeamByName(homeTeam);
@@ -314,9 +330,11 @@ COMPETICIÓN: ${league} | FECHA: ${today}
 FORMA ${homeTeam}: ${homeFormStr}
 FORMA ${awayTeam}: ${awayFormStr}
 REF. SISTEMA ${homeTeam}: avgGoals=${homeTeamData?.avgGoals || 'N/D'}, winRate=${homeTeamData?.winRate || 'N/D'}%
-REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%
+REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%${weatherStr}
 
 ⚠️ Tu conocimiento real prevalece sobre "REF. SISTEMA". Solo menciona jugadores de ${homeTeam} y ${awayTeam}.
+
+INSTRUCCIÓN APUESTAS: Elige 4-6 mercados de ALTA CONFIANZA en apuestasRecomendadas. Prefiere siempre: Over 0.5 goles si ambos equipos atacan, resultado claro si hay diferencia de calidad ≥3, BTTS si ambos meten más de 1.2 goles/partido. No pronostiques mercados dudosos.
 
 DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
 
@@ -436,7 +454,10 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
   "apuestasRecomendadas": [
     {"mercado": "Resultado 1X2", "seleccion": "descripción", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "razonamiento específico con datos"},
     {"mercado": "Total goles", "seleccion": "Over/Under X.5 goles", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "medio", "razonamiento": "argumento con xG calculados"},
-    {"mercado": "Ambos marcan", "seleccion": "Sí/No", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "medio", "razonamiento": "basado en P(local marca) × P(visitante marca)"}
+    {"mercado": "Ambos marcan", "seleccion": "Sí/No", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "medio", "razonamiento": "basado en P(local marca) × P(visitante marca)"},
+    {"mercado": "mercado opcional 4", "seleccion": "descripción", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "solo si hay alta confianza"},
+    {"mercado": "mercado opcional 5", "seleccion": "descripción", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "solo si hay alta confianza"},
+    {"mercado": "mercado opcional 6", "seleccion": "descripción", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "solo si hay alta confianza"}
   ],
   "conclusion": "conclusión 3-4 frases con pronóstico definitivo, resultado más probable y apuesta principal recomendada",
   "confianza": 0

@@ -16,6 +16,7 @@ export interface LineupPitchProps {
   awayFormation?: string;
   isLoading?: boolean;
   isUpcoming?: boolean;
+  lineupConfirmed?: boolean;
 }
 
 const PITCH_WIDTH = 300;
@@ -74,6 +75,7 @@ export default function LineupPitch({
   awayFormation = '4-3-3',
   isLoading = false,
   isUpcoming = false,
+  lineupConfirmed = false,
 }: LineupPitchProps) {
   if (isLoading) {
     return (
@@ -116,6 +118,22 @@ export default function LineupPitch({
         <View style={styles.penaltyBottom} />
         {/* Center spot */}
         <View style={styles.centerSpot} />
+
+        {!noPlayers && (
+          <View style={{
+            position: 'absolute', top: 4, left: 0, right: 0,
+            alignItems: 'center', zIndex: 2,
+          }}>
+            <View style={{
+              backgroundColor: lineupConfirmed ? '#15803d' : '#1e3a5f',
+              paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+            }}>
+              <Text style={{ color: lineupConfirmed ? '#4ade80' : '#60a5fa', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 }}>
+                {lineupConfirmed ? '✅ CONFIRMADA' : '🤖 PROBABLE'}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {noPlayers ? (
           <View style={styles.pendingOverlay}>

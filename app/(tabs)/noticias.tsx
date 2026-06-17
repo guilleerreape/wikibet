@@ -143,9 +143,12 @@ export default function NoticiasScreen() {
 
   useEffect(() => {
     fetchNews();
-    // Auto-refresh cada 5 minutos
-    const interval = setInterval(fetchNews, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    // Auto-refresh cada 5 minutos con cache invalidation forzada
+    const autoRefresh = setInterval(async () => {
+      realNewsService.invalidateCache();  // Force fresh AI generation
+      fetchNews();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(autoRefresh);
   }, [fetchNews]);
 
   const filteredNews = useMemo(() => {
@@ -218,8 +221,8 @@ export default function NoticiasScreen() {
         </Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {lastUpdated && (
-            <Text style={{ fontSize: 9, color: '#6b7280' }}>
-              🔄 {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+            <Text style={{ fontSize: 10, color: '#9ca3af', fontWeight: '700' }}>
+              🔄 Actualizado hoy a las {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
             </Text>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
