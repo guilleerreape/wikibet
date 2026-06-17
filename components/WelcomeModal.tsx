@@ -67,14 +67,14 @@ export default function WelcomeModal({ visible, onClose }: Props) {
               <Text style={s.limitIcon}>🔍</Text>
               <View style={s.limitInfo}>
                 <Text style={s.limitLabel}>Análisis de partidos con IA</Text>
-                <Text style={s.limitVal}><Text style={s.limitNum}>3</Text> por día</Text>
+                <Text style={s.limitVal}><Text style={s.limitNum}>3</Text> por semana</Text>
               </View>
             </View>
             <View style={s.limitRow}>
               <Text style={s.limitIcon}>💬</Text>
               <View style={s.limitInfo}>
                 <Text style={s.limitLabel}>Mensajes al Chat IA</Text>
-                <Text style={s.limitVal}><Text style={s.limitNum}>5</Text> por día</Text>
+                <Text style={s.limitVal}><Text style={s.limitNum}>5</Text> por semana</Text>
               </View>
             </View>
           </View>

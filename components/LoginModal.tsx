@@ -30,8 +30,8 @@ export default function LoginModal({ visible, onClose }: Props) {
           {/* Beneficios */}
           <View style={s.benefits}>
             {[
-              '🔍  3 análisis de IA al día (gratis)',
-              '💬  5 mensajes de chat al día (gratis)',
+              '🔍  3 análisis de IA a la semana (gratis)',
+              '💬  5 mensajes de chat a la semana (gratis)',
               '🏆  Pronósticos WC 2026 en tiempo real',
               '⚡  Premium+ — uso ilimitado',
             ].map(b => (

@@ -326,7 +326,7 @@ export default function IAScreen() {
           <View style={styles.usageBar}>
             <Text style={[styles.usageBarText, chatLeft === 0 && { color: colors.accent.red }]}>
               {chatLeft === 0
-                ? '🔒 Límite diario alcanzado · Actualiza a Premium+'
+                ? '🔒 Límite semanal alcanzado · Actualiza a Premium+'
                 : `💬 ${chatLeft} mensaje${chatLeft === 1 ? '' : 's'} restante${chatLeft === 1 ? '' : 's'} hoy`}
             </Text>
           </View>

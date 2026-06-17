@@ -200,18 +200,56 @@ function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: Ad
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ icon, title, children, accent }: { icon: string; title: string; children: React.ReactNode; accent?: string }) {
+// ─── Animated probability bar ─────────────────────────────────────────────────
+function AnimatedProbBar({ val, color, delay = 0 }: { val: number; color: string; delay?: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: val,
+      duration: 800,
+      delay,
+      useNativeDriver: false,
+    }).start();
+  }, [val]);
+  const width = anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
   return (
-    <View style={[styles.section, accent ? { borderLeftColor: accent, borderLeftWidth: 3, paddingLeft: 10 } : null]}>
-      <View style={styles.sectionHeader}>
-        <View style={[styles.sectionIconWrap, { backgroundColor: (accent || colors.accent.green) + '20' }]}>
-          <Text style={styles.sectionIcon}>{icon}</Text>
-        </View>
-        <Text style={[styles.sectionTitle, { color: accent || colors.text.primary }]}>{title}</Text>
-      </View>
-      {children}
+    <View style={styles.probBarBg}>
+      <Animated.View style={[styles.probBarFill, { width, backgroundColor: color }]} />
     </View>
+  );
+}
+
+// ─── Animated section fade-in ─────────────────────────────────────────────────
+function AnimSection({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(10)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 400, delay, useNativeDriver: true }),
+      Animated.timing(slide, { toValue: 0, duration: 320, delay, useNativeDriver: true }),
+    ]).start();
+  }, []);
+  return (
+    <Animated.View style={{ opacity, transform: [{ translateY: slide }] }}>
+      {children}
+    </Animated.View>
+  );
+}
+
+// ─── Section wrapper ──────────────────────────────────────────────────────────
+function Section({ icon, title, children, accent, delay = 0 }: { icon: string; title: string; children: React.ReactNode; accent?: string; delay?: number }) {
+  return (
+    <AnimSection delay={delay}>
+      <View style={[styles.section, accent ? { borderLeftColor: accent, borderLeftWidth: 3, paddingLeft: 10 } : null]}>
+        <View style={styles.sectionHeader}>
+          <View style={[styles.sectionIconWrap, { backgroundColor: (accent || colors.accent.green) + '20' }]}>
+            <Text style={styles.sectionIcon}>{icon}</Text>
+          </View>
+          <Text style={[styles.sectionTitle, { color: accent || colors.text.primary }]}>{title}</Text>
+        </View>
+        {children}
+      </View>
+    </AnimSection>
   );
 }
 
@@ -508,11 +546,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const isLive = selectedMatch.status === 'live';
     const isFinished = selectedMatch.status === 'finished';
 
-    const ProbBar = ({ val, color }: { val: number; color: string }) => (
-      <View style={styles.probBarBg}>
-        <View style={[styles.probBarFill, { width: `${val}%` as any, backgroundColor: color }]} />
-        <Text style={styles.probBarText}>{val}%</Text>
-      </View>
+    const ProbBar = ({ val, color, delay = 0 }: { val: number; color: string; delay?: number }) => (
+      <AnimatedProbBar val={val} color={color} delay={delay} />
     );
 
     const LineRow = ({ label, local, visitante, total, highlight }: {
@@ -549,7 +584,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         {isLive && <LiveBanner match={selectedMatch} analysis={analysis} />}
 
         {/* RESUMEN */}
-        <Section icon="📋" title="RESUMEN EJECUTIVO">
+        <Section icon="📋" title="RESUMEN EJECUTIVO" delay={0}>
           <Text style={styles.bodyText}>{analysis.resumenEjecutivo}</Text>
           <Text style={[styles.bodyText, { marginTop: 6, color: colors.text.muted, fontStyle: 'italic' }]}>
             {analysis.importanciaDelPartido}
@@ -557,7 +592,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* EQUIPOS */}
-        <Section icon="🎽" title="ANÁLISIS DE EQUIPOS">
+        <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" delay={80}>
           <View style={styles.row2}>
             {[
               { name: selectedMatch.homeTeam, data: analysis.equipoLocal, flag: getFlag(selectedMatch.homeTeam) },
@@ -582,17 +617,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* 1X2 */}
-        <Section icon="🎯" title="PROBABILIDADES 1X2">
+        <Section icon="🎯" title="PROBABILIDADES 1X2" delay={160}>
           <View style={styles.row3}>
             {[
-              { label: `1 ${selectedMatch.homeTeam}`, prob: pred.probabilidades.victoriaLocal, cuota: pred.cuotasTeoricas.victoriaLocal, color: colors.accent.green },
-              { label: 'X Empate', prob: pred.probabilidades.empate, cuota: pred.cuotasTeoricas.empate, color: colors.accent.gold },
-              { label: `2 ${selectedMatch.awayTeam}`, prob: pred.probabilidades.victoriaVisitante, cuota: pred.cuotasTeoricas.victoriaVisitante, color: colors.accent.red },
+              { label: `1 ${selectedMatch.homeTeam}`, prob: pred.probabilidades.victoriaLocal, cuota: pred.cuotasTeoricas.victoriaLocal, color: colors.accent.green, d: 200 },
+              { label: 'X Empate', prob: pred.probabilidades.empate, cuota: pred.cuotasTeoricas.empate, color: colors.accent.gold, d: 320 },
+              { label: `2 ${selectedMatch.awayTeam}`, prob: pred.probabilidades.victoriaVisitante, cuota: pred.cuotasTeoricas.victoriaVisitante, color: colors.accent.red, d: 440 },
             ].map(item => (
               <View key={item.label} style={styles.probCell}>
                 <Text style={styles.probLabel} numberOfLines={1}>{item.label}</Text>
                 <Text style={[styles.probValue, { color: item.color }]}>{item.prob}%</Text>
-                <ProbBar val={item.prob} color={item.color} />
+                <ProbBar val={item.prob} color={item.color} delay={item.d} />
                 <Text style={styles.probOdds}>{item.cuota.toFixed(2)}</Text>
               </View>
             ))}
@@ -603,7 +638,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* GOLES */}
-        <Section icon="⚽" title="PROBABILIDAD DE GOLES">
+        <Section icon="⚽" title="PROBABILIDAD DE GOLES" delay={240}>
           {/* Header tabla */}
           <View style={styles.tableHeader}>
             <Text style={[styles.tableHeadCell, { flex: 1.4 }]}>Mercado</Text>
@@ -635,7 +670,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* TIROS A PUERTA */}
-        <Section icon="🎯" title="TIROS A PUERTA">
+        <Section icon="🎯" title="TIROS A PUERTA" delay={320}>
           {pred.tiros && (
             <>
               <View style={styles.tableHeader}>
@@ -673,7 +708,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* CÓRNERS */}
-        <Section icon="🚩" title="CÓRNERS">
+        <Section icon="🚩" title="CÓRNERS" delay={400}>
           {pred.corners && (
             <>
               <View style={styles.row3} style={{ gap: 8, marginBottom: 10 }}>
@@ -710,7 +745,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* FALTAS */}
-        <Section icon="⚠️" title="FALTAS">
+        <Section icon="⚠️" title="FALTAS" delay={480}>
           {pred.faltas && (
             <>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
@@ -740,7 +775,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* TARJETAS */}
-        <Section icon="🟨" title="TARJETAS">
+        <Section icon="🟨" title="TARJETAS" delay={560}>
           {pred.tarjetas && (
             <>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
@@ -794,7 +829,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* GOLEADORES */}
-        <Section icon="⚽" title="GOLEADORES PREVISTOS">
+        <Section icon="⚽" title="GOLEADORES PREVISTOS" delay={640}>
           {pred.goleadores && (
             <>
               <View style={styles.topScorerBox}>
@@ -824,7 +859,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
         {/* RESULTADOS EXACTOS */}
         {pred.resultados_exactos && pred.resultados_exactos.length > 0 && (
-          <Section icon="🏆" title="RESULTADOS EXACTOS (TOP 5)">
+          <Section icon="🏆" title="RESULTADOS EXACTOS (TOP 5)" delay={680}>
             {pred.resultados_exactos.map((r, i) => (
               <View key={r.resultado} style={[styles.exactScoreRow, i % 2 === 0 && styles.lineRowHighlight]}>
                 <Text style={[styles.exactScorePos, { color: i === 0 ? colors.accent.gold : colors.text.muted }]}>{i + 1}.</Text>
@@ -837,7 +872,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         )}
 
         {/* MERCADOS */}
-        <Section icon="📊" title="MERCADOS DE GOLES">
+        <Section icon="📊" title="MERCADOS DE GOLES" delay={720}>
           <View style={styles.marketsGrid}>
             {[
               { label: 'Over 1.5', val: pred.mercados?.over1_5 },
@@ -858,7 +893,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* TÁCTICA */}
-        <Section icon="♟️" title="ANÁLISIS TÁCTICO">
+        <Section icon="♟️" title="ANÁLISIS TÁCTICO" delay={800}>
           <View style={styles.row2}>
             <View style={styles.teamBox}>
               <Text style={styles.teamBoxName}>{getFlag(selectedMatch.homeTeam)} Local</Text>
@@ -880,7 +915,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
         {/* APUESTAS CON VALOR */}
         {analysis.apuestasRecomendadas?.length > 0 && (
-          <Section icon="💰" title="APUESTAS CON VALOR" accent={colors.accent.gold}>
+          <Section icon="💰" title="APUESTAS CON VALOR" accent={colors.accent.gold} delay={760}>
             {analysis.apuestasRecomendadas.slice(0, 3).map((bet, i) => (
               <View key={i} style={[styles.betCard, i === 0 && styles.betCardTop]}>
                 {i === 0 && (
@@ -940,7 +975,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         )}
 
         {/* CONCLUSIÓN */}
-        <Section icon="🎯" title="CONCLUSIÓN">
+        <Section icon="🎯" title="CONCLUSIÓN" delay={880}>
           <Text style={styles.bodyText}>{analysis.conclusion}</Text>
           <View style={styles.confBox}>
             <View style={[styles.confBar, { width: `${analysis.confianza}%` as any }]} />

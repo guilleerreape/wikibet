@@ -28,7 +28,7 @@ export default function UpgradeModal({ visible, onClose, reason }: Props) {
       <View style={s.overlay}>
         <View style={s.card}>
           <Text style={s.lock}>🔒</Text>
-          <Text style={s.title}>Límite diario alcanzado</Text>
+          <Text style={s.title}>Límite semanal alcanzado</Text>
           <Text style={s.subtitle}>
             Has usado todos tus {reason ?? 'usos'} gratuitos de hoy.{'\n'}
             Actualiza a Premium+ para acceso ilimitado.
