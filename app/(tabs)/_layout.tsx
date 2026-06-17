@@ -1,11 +1,108 @@
 import { Tabs } from 'expo-router';
-import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking } from 'react-native';
+import { useState } from 'react';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
 
+const STRIPE_URL = 'https://buy.stripe.com/PLACEHOLDER';
+
+// ─── Menú desplegable de perfil ───────────────────────────────────────────────
+function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { user, profile, bypassActive, isPremium, dailyUsage, signOut } = useAuth();
+
+  const fullName   = profile?.full_name ?? user?.email ?? (bypassActive ? 'Admin' : 'Usuario');
+  const email      = user?.email ?? (bypassActive ? 'Acceso con código' : '');
+  const initial    = bypassActive ? '👑' : fullName[0].toUpperCase();
+  const planLabel  = bypassActive ? '👑 Admin' : isPremium ? '⚡ Premium+' : '🆓 Plan gratuito';
+  const planColor  = bypassActive ? '#f59e0b' : isPremium ? '#22c55e' : colors.text.muted;
+
+  const analysesLeft = FREE_LIMITS.ai_analyses - dailyUsage.ai_analyses;
+  const chatsLeft    = FREE_LIMITS.chat_messages - dailyUsage.chat_messages;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={m.overlay} onPress={onClose}>
+        <Pressable style={m.menu} onPress={e => e.stopPropagation()}>
+
+          {/* Cabecera con avatar + nombre */}
+          <View style={m.header}>
+            <View style={m.avatarLg}>
+              <Text style={m.avatarLgText}>{initial}</Text>
+            </View>
+            <View style={m.headerInfo}>
+              <Text style={m.name} numberOfLines={1}>{fullName}</Text>
+              {email ? <Text style={m.email} numberOfLines={1}>{email}</Text> : null}
+              <View style={[m.planBadge, { borderColor: planColor + '60' }]}>
+                <Text style={[m.planText, { color: planColor }]}>{planLabel}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Uso diario (solo free) */}
+          {!isPremium && !bypassActive && (
+            <View style={m.usageBox}>
+              <UsageBar label="🔍 Análisis" used={dailyUsage.ai_analyses} limit={FREE_LIMITS.ai_analyses} />
+              <UsageBar label="💬 Chat"     used={dailyUsage.chat_messages} limit={FREE_LIMITS.chat_messages} />
+            </View>
+          )}
+
+          <View style={m.divider} />
+
+          {/* Gestionar suscripción */}
+          {!bypassActive && (
+            <TouchableOpacity
+              style={m.menuItem}
+              onPress={() => { onClose(); Linking.openURL(STRIPE_URL); }}
+            >
+              <Text style={m.menuItemIcon}>⚡</Text>
+              <View style={m.menuItemInfo}>
+                <Text style={m.menuItemText}>
+                  {isPremium ? 'Gestionar suscripción' : 'Actualizar a Premium+'}
+                </Text>
+                {!isPremium && <Text style={m.menuItemSub}>4,99 € / mes · Ilimitado</Text>}
+              </View>
+              <Text style={m.menuItemArrow}>›</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={m.divider} />
+
+          {/* Cerrar sesión */}
+          <TouchableOpacity
+            style={m.menuItem}
+            onPress={() => { onClose(); signOut(); }}
+          >
+            <Text style={m.menuItemIcon}>🚪</Text>
+            <Text style={[m.menuItemText, { color: colors.accent.red }]}>Cerrar sesión</Text>
+          </TouchableOpacity>
+
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function UsageBar({ label, used, limit }: { label: string; used: number; limit: number }) {
+  const pct = Math.min(used / limit, 1);
+  return (
+    <View style={m.usageRow}>
+      <Text style={m.usageLabel}>{label}</Text>
+      <View style={m.barBg}>
+        <View style={[m.barFill, {
+          width: `${pct * 100}%` as any,
+          backgroundColor: pct >= 1 ? colors.accent.red : colors.accent.green,
+        }]} />
+      </View>
+      <Text style={m.usageCount}>{used}/{limit}</Text>
+    </View>
+  );
+}
+
+// ─── Botón de perfil en el header ─────────────────────────────────────────────
 function ProfileButton() {
-  const { user, profile, bypassActive, isPremium, setShowLoginModal, signOut } = useAuth();
+  const { user, profile, bypassActive, isPremium, setShowLoginModal } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (!user && !bypassActive) {
     return (
@@ -15,13 +112,17 @@ function ProfileButton() {
     );
   }
 
-  const initial = bypassActive ? '👑' : (profile?.full_name ?? user?.email ?? 'U')[0].toUpperCase();
+  const fullName = profile?.full_name ?? user?.email ?? '';
+  const initial  = bypassActive ? '👑' : (fullName[0] ?? 'U').toUpperCase();
 
   return (
-    <TouchableOpacity onPress={signOut} style={s.avatar}>
-      <Text style={s.avatarText}>{initial}</Text>
-      {isPremium && <Text style={s.crown}>⚡</Text>}
-    </TouchableOpacity>
+    <>
+      <TouchableOpacity onPress={() => setMenuOpen(true)} style={s.avatar} activeOpacity={0.8}>
+        <Text style={s.avatarText}>{initial}</Text>
+        {(isPremium || bypassActive) && <Text style={s.crown}>⚡</Text>}
+      </TouchableOpacity>
+      <ProfileMenu visible={menuOpen} onClose={() => setMenuOpen(false)} />
+    </>
   );
 }
 
@@ -29,7 +130,7 @@ function UsagePill() {
   const { user, dailyUsage, isPremium, bypassActive } = useAuth();
   if (!user || isPremium || bypassActive) return null;
   const analyses = FREE_LIMITS.ai_analyses - dailyUsage.ai_analyses;
-  const chats = FREE_LIMITS.chat_messages - dailyUsage.chat_messages;
+  const chats    = FREE_LIMITS.chat_messages - dailyUsage.chat_messages;
   return (
     <View style={s.pill}>
       <Text style={s.pillText}>🔍{analyses} 💬{chats}</Text>
@@ -37,6 +138,7 @@ function UsagePill() {
   );
 }
 
+// ─── Layout ───────────────────────────────────────────────────────────────────
 export default function TabsLayout() {
   return (
     <Tabs
@@ -55,54 +157,32 @@ export default function TabsLayout() {
           backgroundColor: colors.bg.card,
           borderTopColor: colors.border.medium,
           borderTopWidth: 1,
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 60,
+          paddingBottom: 8, paddingTop: 8, height: 60,
         },
         tabBarActiveTintColor: colors.accent.green,
         tabBarInactiveTintColor: colors.text.muted,
         tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{ title: '⚽ WikiBet', tabBarLabel: '📊 Partidos' }}
-      />
-      <Tabs.Screen
-        name="value"
-        options={{ title: '💰 Value Bets', tabBarLabel: '💰 Value' }}
-      />
-      <Tabs.Screen
-        name="ia"
-        options={{ title: '🤖 IA Deportiva', tabBarLabel: '🤖 IA' }}
-      />
-      <Tabs.Screen
-        name="apuestas"
-        options={{ title: '📒 Mis Apuestas', tabBarLabel: '📒 Apuestas' }}
-      />
-      <Tabs.Screen
-        name="noticias"
-        options={{ title: '📰 Noticias', tabBarLabel: '📰 Noticias' }}
-      />
+      <Tabs.Screen name="index"    options={{ title: '⚽ WikiBet',       tabBarLabel: '📊 Partidos' }} />
+      <Tabs.Screen name="value"    options={{ title: '💰 Value Bets',    tabBarLabel: '💰 Value' }} />
+      <Tabs.Screen name="ia"       options={{ title: '🤖 IA Deportiva',  tabBarLabel: '🤖 IA' }} />
+      <Tabs.Screen name="apuestas" options={{ title: '📒 Mis Apuestas',  tabBarLabel: '📒 Apuestas' }} />
+      <Tabs.Screen name="noticias" options={{ title: '📰 Noticias',      tabBarLabel: '📰 Noticias' }} />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
     </Tabs>
   );
 }
 
+// ─── Estilos header ───────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  headerRight: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 12,
-  },
-  loginBtn: {
-    backgroundColor: '#22c55e', borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 6,
-  },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 12 },
+  loginBtn: { backgroundColor: '#22c55e', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   loginText: { color: '#000', fontWeight: '700', fontSize: 13 },
   avatar: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center',
-    position: 'relative',
   },
   avatarText: { color: '#000', fontWeight: '800', fontSize: 15 },
   crown: { position: 'absolute', top: -6, right: -6, fontSize: 12 },
@@ -112,4 +192,60 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: '#374151',
   },
   pillText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
+});
+
+// ─── Estilos menú ─────────────────────────────────────────────────────────────
+const m = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'flex-end', justifyContent: 'flex-start',
+    paddingTop: 60, paddingRight: 12,
+  },
+  menu: {
+    backgroundColor: '#111827', borderRadius: 16,
+    width: 280, borderWidth: 1, borderColor: '#1f2937',
+    overflow: 'hidden',
+  },
+
+  // Cabecera
+  header: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    padding: 16,
+  },
+  avatarLg: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  avatarLgText: { color: '#000', fontWeight: '900', fontSize: 20 },
+  headerInfo: { flex: 1 },
+  name:  { fontSize: 15, fontWeight: '700', color: '#fff', marginBottom: 2 },
+  email: { fontSize: 11, color: '#6b7280', marginBottom: 6 },
+  planBadge: {
+    alignSelf: 'flex-start', borderWidth: 1, borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 2,
+  },
+  planText: { fontSize: 11, fontWeight: '700' },
+
+  // Uso
+  usageBox: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
+  usageRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  usageLabel: { fontSize: 12, color: '#9ca3af', width: 90 },
+  barBg: { flex: 1, height: 5, backgroundColor: '#374151', borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3 },
+  usageCount: { fontSize: 11, color: '#6b7280', width: 28, textAlign: 'right' },
+
+  // Divisor
+  divider: { height: 1, backgroundColor: '#1f2937', marginHorizontal: 0 },
+
+  // Items del menú
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  menuItemIcon: { fontSize: 18, width: 24, textAlign: 'center' },
+  menuItemInfo: { flex: 1 },
+  menuItemText: { fontSize: 14, color: '#e5e7eb', fontWeight: '600' },
+  menuItemSub:  { fontSize: 11, color: '#6b7280', marginTop: 1 },
+  menuItemArrow: { fontSize: 20, color: '#4b5563' },
 });
