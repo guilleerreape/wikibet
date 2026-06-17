@@ -165,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ─── Tracking ─────────────────────────────────────────────────────────────
   async function trackAnalysis(): Promise<boolean> {
     if (!isAuthenticated) { setShowLoginModal(true); return false; }
+    if (bypassActive) return true; // admin bypass — zero limits, no tracking
     if (!canAnalyze) { setUpgradeReason('análisis de IA'); setShowUpgradeModal(true); return false; }
     if (user) {
       await incrementUsage(user.id, 'ai_analyses');
@@ -175,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function trackChat(): Promise<boolean> {
     if (!isAuthenticated) { setShowLoginModal(true); return false; }
+    if (bypassActive) return true; // admin bypass — zero limits, no tracking
     if (!canChat) { setUpgradeReason('mensajes de chat'); setShowUpgradeModal(true); return false; }
     if (user) {
       await incrementUsage(user.id, 'chat_messages');

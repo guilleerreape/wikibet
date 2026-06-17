@@ -175,14 +175,14 @@ function PulsingDot({ delay = 0 }: { delay?: number }) {
 
 export default function IAScreen() {
   const { messages, loading, sendMessage, clearMessages, generateDynamicSuggestions } = useChat();
-  const { user, isPremium, dailyUsage, trackChat, setShowLoginModal } = useAuth();
+  const { user, isAuthenticated, isPremium, dailyUsage, trackChat, setShowLoginModal } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const [inputText, setInputText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
   const headerBg = useRef(new Animated.Value(0)).current;
 
-  const chatLeft = isPremium ? Infinity : Math.max(0, FREE_LIMITS.chat_messages - dailyUsage.chat_messages);
+  const chatLeft = (isPremium || !user) ? Infinity : Math.max(0, FREE_LIMITS.chat_messages - dailyUsage.chat_messages);
 
   // Genera sugerencias dinámicas al cargar + animación del header
   useEffect(() => {
@@ -205,7 +205,7 @@ export default function IAScreen() {
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || loading) return;
-    if (!user) { setShowLoginModal(true); return; }
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
     const ok = await trackChat();
     if (!ok) return;
     setInputText('');
@@ -214,7 +214,7 @@ export default function IAScreen() {
 
   const handleSuggestion = async (q: string) => {
     if (loading) return;
-    if (!user) { setShowLoginModal(true); return; }
+    if (!isAuthenticated) { setShowLoginModal(true); return; }
     const ok = await trackChat();
     if (!ok) return;
     setInputText('');
