@@ -66,13 +66,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Restaurar bypass de sesión anterior
     if (readBypass()) setBypassActive(true);
 
+    // Timeout de seguridad: si getSession tarda más de 3s, desbloquear igualmente
+    const safetyTimer = setTimeout(() => setLoading(false), 3000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearTimeout(safetyTimer);
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
         loadProfile(session.user.id);
         loadUsage(session.user.id);
       }
+      setLoading(false);
+    }).catch(() => {
+      clearTimeout(safetyTimer);
       setLoading(false);
     });
 
