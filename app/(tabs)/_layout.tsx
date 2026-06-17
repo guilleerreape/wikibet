@@ -5,6 +5,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
+import { getQuickStats } from '@/services/predictionTracker';
+import AccuracyModal from '@/components/AccuracyModal';
 
 const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
 
@@ -222,14 +224,59 @@ function UsagePill() {
   );
 }
 
+// ─── Accuracy button (pulsing 🎯) ─────────────────────────────────────────────
+function AccuracyButton({ onPress }: { onPress: () => void }) {
+  const pulse  = useRef(new Animated.Value(1)).current;
+  const glow   = useRef(new Animated.Value(0)).current;
+  const [quickPct, setQuickPct] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Pulsing ring
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.12, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1,    duration: 1000, useNativeDriver: true }),
+      ])
+    ).start();
+    // Glow color cycle
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 2000, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0, duration: 2000, useNativeDriver: false }),
+      ])
+    ).start();
+    // Load quick % for badge
+    getQuickStats().then(q => { if (q) setQuickPct(q.pct); });
+    return () => { pulse.stopAnimation(); glow.stopAnimation(); };
+  }, []);
+
+  const borderColor = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#22c55e', '#f59e0b'],
+  });
+
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <Animated.View style={[s.accuracyBtn, { borderColor, transform: [{ scale: pulse }] }]}>
+        <Text style={s.accuracyEmoji}>🎯</Text>
+        {quickPct !== null && (
+          <Text style={s.accuracyPct}>{quickPct}%</Text>
+        )}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Layout ───────────────────────────────────────────────────────────────────
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const [accuracyVisible, setAccuracyVisible] = useState(false);
   // En móvil web, añadir padding extra para que no tape la barra del navegador
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
   const tabBarH   = 58 + bottomPad;
 
   return (
+    <>
     <Tabs
       screenOptions={{
         headerShown: true,
@@ -240,6 +287,7 @@ export default function TabsLayout() {
         headerRight: () => (
           <View style={s.headerRight}>
             <UsagePill />
+            <AccuracyButton onPress={() => setAccuracyVisible(true)} />
             <ProfileButton />
           </View>
         ),
@@ -296,6 +344,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
     </Tabs>
+    <AccuracyModal visible={accuracyVisible} onClose={() => setAccuracyVisible(false)} />
+    </>
   );
 }
 
@@ -316,6 +366,15 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: '#374151',
   },
   pillText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
+  // Accuracy button
+  accuracyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    borderWidth: 1.5, borderRadius: 10,
+    paddingHorizontal: 7, paddingVertical: 4,
+    backgroundColor: '#0f1a0f',
+  },
+  accuracyEmoji: { fontSize: 14 },
+  accuracyPct: { fontSize: 11, fontWeight: '900', color: '#22c55e' },
 });
 
 // ─── Estilos menú ─────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, Standing
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
+import { savePrediction, updateActualResult, outcomeFromProbs } from '@/services/predictionTracker';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -374,6 +375,28 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         match.homeTeam, match.awayTeam, match.league
       );
       setAnalysis(result);
+
+      // ── Track prediction in Supabase (shared across all users/devices) ──
+      const probs = result.predicciones.probabilidades;
+      const predicted = outcomeFromProbs(
+        probs.victoriaLocal, probs.empate, probs.victoriaVisitante
+      );
+      // Save prediction (first write wins — ignoreDuplicates: true)
+      savePrediction(
+        match.id,
+        match.league,
+        match.homeTeam,
+        match.awayTeam,
+        match.date,
+        predicted,
+      );
+      // If match already finished, also record the actual result
+      if (match.status === 'finished' &&
+          match.homeScore !== undefined &&
+          match.awayScore !== undefined) {
+        updateActualResult(match.id, match.homeScore, match.awayScore);
+      }
+
       // Comentario IA para partidos ya jugados
       if (match.status === 'finished') {
         generatePostMatchComment(match, result);
