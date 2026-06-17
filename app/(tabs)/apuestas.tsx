@@ -7,9 +7,11 @@ import {
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import {
-  getBets, addBet, updateBetResult, deleteBet, calcStats,
+  getBets, updateBetResult, deleteBet, calcStats,
   type Bet, type BetResult,
 } from '@/services/betsService';
+import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
+import { espnMatchService } from '@/services/espnMatchService';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = (n: number) =>
@@ -240,11 +242,40 @@ function ResultModal({ bet, onClose, onSave }: {
 // ─── Pantalla principal ───────────────────────────────────────────────────────
 export default function ApuestasScreen() {
   const { user, setShowLoginModal } = useAuth();
-  const [bets, setBets]           = useState<Bet[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [showAdd, setShowAdd]     = useState(false);
-  const [resultBet, setResultBet] = useState<Bet | null>(null);
-  const [filter, setFilter]       = useState<'all' | 'pending' | 'won' | 'lost'>('all');
+  const [bets, setBets]             = useState<Bet[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [showSmart, setShowSmart]   = useState(false);
+  const [resultBet, setResultBet]   = useState<Bet | null>(null);
+  const [filter, setFilter]         = useState<'all' | 'pending' | 'won' | 'lost'>('all');
+  const [upcomingMatches, setUpcomingMatches] = useState<SmartMatch[]>([]);
+
+  // Cargar partidos próximos para el selector
+  useEffect(() => {
+    espnMatchService.getUpcomingMatches?.().then(matches => {
+      setUpcomingMatches(matches.map(m => ({
+        id:       m.id,
+        homeTeam: m.homeTeam,
+        awayTeam: m.awayTeam,
+        league:   m.league ?? 'Mundial 2026',
+        time:     m.time,
+      })));
+    }).catch(() => {
+      // fallback: los cargamos de la lista estática
+      espnMatchService.getAllMatches().then(all => {
+        const upcoming = all
+          .filter(m => m.status === 'upcoming' || m.status === 'scheduled')
+          .slice(0, 20)
+          .map(m => ({
+            id:       m.id,
+            homeTeam: m.homeTeam,
+            awayTeam: m.awayTeam,
+            league:   m.league ?? 'Mundial 2026',
+            time:     m.time,
+          }));
+        setUpcomingMatches(upcoming);
+      }).catch(() => {});
+    });
+  }, []);
 
   const loadBets = useCallback(async () => {
     if (!user) return;
@@ -255,12 +286,6 @@ export default function ApuestasScreen() {
   }, [user]);
 
   useEffect(() => { loadBets(); }, [loadBets]);
-
-  const handleAdd = async (data: any) => {
-    if (!user) return;
-    const bet = await addBet(user.id, data);
-    setBets(prev => [bet, ...prev]);
-  };
 
   const handleSetResult = async (id: number, result: BetResult) => {
     const bet = bets.find(b => b.id === id);
@@ -390,7 +415,10 @@ export default function ApuestasScreen() {
             </TouchableOpacity>
           ))}
           <View style={{ flex: 1 }} />
-          <TouchableOpacity style={st.addBtn} onPress={() => setShowAdd(true)}>
+          <TouchableOpacity style={st.addBtn} onPress={() => {
+            if (!user) { setShowLoginModal(true); return; }
+            setShowSmart(true);
+          }}>
             <Text style={st.addBtnText}>+ Añadir</Text>
           </TouchableOpacity>
         </View>
@@ -419,10 +447,11 @@ export default function ApuestasScreen() {
 
       </ScrollView>
 
-      <AddBetModal
-        visible={showAdd}
-        onClose={() => setShowAdd(false)}
-        onSave={handleAdd}
+      <SmartAddBetModal
+        visible={showSmart}
+        matches={upcomingMatches}
+        onClose={() => setShowSmart(false)}
+        onSaved={loadBets}
       />
       <ResultModal
         bet={resultBet}

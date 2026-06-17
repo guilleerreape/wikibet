@@ -514,4 +514,16 @@ export const espnMatchService = {
       return STANDINGS_STATIC[competitionId] || [];
     }
   },
+
+  // Devuelve todos los partidos de todas las competiciones (para selector de apuestas)
+  async getAllMatches(): Promise<CompetitionMatch[]> {
+    const all: CompetitionMatch[] = [];
+    for (const comp of COMPETITIONS) {
+      try {
+        const matches = await this.getMatches(comp.id);
+        all.push(...matches);
+      } catch { /* continuar con las demás */ }
+    }
+    return all;
+  },
 };
