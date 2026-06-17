@@ -14,6 +14,149 @@ import {
 import { colors } from '@/constants/colors';
 import { useChat } from '@/hooks/useChat';
 
+// ─── Renderizador de mensajes IA ──────────────────────────────────────────────
+function MessageRenderer({ text }: { text: string }) {
+  const lines = text.split('\n');
+
+  return (
+    <View style={{ gap: 1 }}>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+
+        // Línea vacía → pequeño espacio
+        if (!trimmed) {
+          return <View key={i} style={{ height: 6 }} />;
+        }
+
+        // Separador visual ──────
+        if (/^─{3,}/.test(trimmed) || /^-{3,}/.test(trimmed) || /^={3,}/.test(trimmed)) {
+          return (
+            <View key={i} style={msgStyles.divider} />
+          );
+        }
+
+        // Sección en MAYÚSCULAS con emoji al inicio (ej: "⚽ GOLES ESPERADOS:")
+        const isSectionHeader =
+          /^[🎯⚽🏆💰📊🔴✅❌🟨🚩⚠️🎽♟️🔥📅🤖💬🏴🇦🇷🇪🇸🇩🇪🇫🇷🇧🇷🇵🇹]/.test(trimmed) &&
+          trimmed === trimmed.toUpperCase().replace(/[^A-ZÁÉÍÓÚÜÑ0-9\s:·|%+\-,.()🎯⚽🏆💰📊🔴✅❌🟨🚩⚠️🎽♟️🔥📅🤖💬🏴🇦🇷🇪🇸🇩🇪🇫🇷🇧🇷🇵🇹]/g, '');
+
+        // Título de sección: línea que termina en ":" y empieza con emoji o mayúsculas
+        const isTitleLine =
+          (trimmed.endsWith(':') && trimmed.length < 60) ||
+          (/^[🎯⚽🏆💰📊🔴✅❌🟨🚩⚠️🎽♟️🔥📅🇦🇷🇪🇸🇩🇪🇫🇷🇧🇷🇵🇹🇲🇽🇦🇩🇬🇧🇵🇴🇧🇪🇸🇪🇦🇺🇺🇾🏴]/.test(trimmed) &&
+            /[A-ZÁÉÍÓÚ]{3,}/.test(trimmed) &&
+            trimmed.length < 70);
+
+        if (isTitleLine) {
+          return (
+            <View key={i} style={msgStyles.sectionTitleWrap}>
+              <Text style={msgStyles.sectionTitle}>{trimmed}</Text>
+            </View>
+          );
+        }
+
+        // Tabla/datos: líneas con múltiples espacios o separadores |
+        if (trimmed.includes('   ') || (trimmed.includes('|') && trimmed.includes('%'))) {
+          return (
+            <View key={i} style={msgStyles.tableRow}>
+              <Text style={msgStyles.tableText}>{trimmed}</Text>
+            </View>
+          );
+        }
+
+        // Bullet •  →  ─
+        if (/^[•→\-✅❌]/.test(trimmed)) {
+          const isBold = trimmed.includes('MEJOR APUESTA') || trimmed.includes('valor') || trimmed.includes('Valor');
+          return (
+            <View key={i} style={msgStyles.bulletRow}>
+              <Text style={msgStyles.bulletText}>{trimmed}</Text>
+            </View>
+          );
+        }
+
+        // Línea con cuota/dato numérico clave (ej: "Cuota: 1.85  |  Prob: 58%")
+        if (trimmed.includes('@') && trimmed.match(/\d+\.\d+/)) {
+          return (
+            <View key={i} style={msgStyles.dataRow}>
+              <Text style={msgStyles.dataText}>{trimmed}</Text>
+            </View>
+          );
+        }
+
+        // Texto normal
+        return (
+          <Text key={i} style={msgStyles.normalText} selectable>
+            {trimmed}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+const msgStyles = StyleSheet.create({
+  divider: {
+    height: 1,
+    backgroundColor: colors.border.subtle,
+    marginVertical: 6,
+    borderRadius: 1,
+  },
+  sectionTitleWrap: {
+    marginTop: 8,
+    marginBottom: 2,
+    paddingBottom: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.accent.green + '40',
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.accent.green,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  tableRow: {
+    backgroundColor: colors.bg.primary,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    marginVertical: 1,
+  },
+  tableText: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    color: colors.text.primary,
+  },
+  bulletRow: {
+    paddingLeft: 4,
+    marginVertical: 1,
+  },
+  bulletText: {
+    fontSize: 12,
+    color: colors.text.primary,
+    lineHeight: 18,
+  },
+  dataRow: {
+    backgroundColor: colors.accent.gold + '18',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginVertical: 2,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent.gold,
+  },
+  dataText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text.primary,
+  },
+  normalText: {
+    fontSize: 13,
+    color: colors.text.primary,
+    lineHeight: 19,
+  },
+});
+
 export default function IAScreen() {
   const { messages, loading, sendMessage, clearMessages, generateDynamicSuggestions } = useChat();
   const scrollRef = useRef<ScrollView>(null);
@@ -142,15 +285,13 @@ export default function IAScreen() {
                       msg.role === 'user' ? styles.bubbleUser : styles.bubbleAI,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.bubbleText,
-                        msg.role === 'user' ? styles.bubbleTextUser : styles.bubbleTextAI,
-                      ]}
-                      selectable
-                    >
-                      {msg.content}
-                    </Text>
+                    {msg.role === 'user' ? (
+                      <Text style={[styles.bubbleText, styles.bubbleTextUser]} selectable>
+                        {msg.content}
+                      </Text>
+                    ) : (
+                      <MessageRenderer text={msg.content} />
+                    )}
                   </View>
                 </View>
               ))}

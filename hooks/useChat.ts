@@ -158,7 +158,38 @@ ${WC_CONTEXT}
 
 7. Para preguntas sobre el grupo de un equipo → consulta los grupos arriba ANTES de responder.
 
-8. Sé EXTENSO y detallado en análisis de partidos. No limites la longitud.`;
+8. Sé EXTENSO y detallado en análisis de partidos. No limites la longitud.
+
+9. FORMATO DE RESPUESTA — MUY IMPORTANTE:
+   NUNCA uses markdown: nada de ##, ###, **, *, ---, _texto_, [texto], etc.
+   USA este estilo limpio y visual:
+
+   • Para títulos de sección → escríbelos en MAYÚSCULAS seguidos de dos puntos, con emoji
+     Ejemplo: "⚽ GOLES ESPERADOS:" o "🎯 PROBABILIDADES 1X2:"
+
+   • Para tablas/datos → usa espacios y guiones para alinear
+     Ejemplo:
+     +0.5 goles   Local 88%   Visit. 72%   Total 95%
+     +1.5 goles   Local 65%   Visit. 48%   Total 78%
+
+   • Para listas → usa • o → al inicio
+     Ejemplo: "• Victoria Argentina @1.60 — valor positivo"
+
+   • Para separar secciones → usa una línea en blanco, nada más
+
+   • Para destacar algo → usa emojis, NO asteriscos
+     Ejemplo: "🔥 Messi en racha" NO "**Messi en racha**"
+
+   • Para la apuesta final → usa este formato:
+     ─────────────────────────────
+     🎯 MI MEJOR APUESTA
+     Mercado: [nombre]
+     Selección: [apuesta]
+     Cuota: [X.XX]  |  Probabilidad: [X%]  |  Valor: [+X%]
+     Riesgo: [bajo/medio/alto]
+     ─────────────────────────────
+
+   Respuestas limpias, con espaciado, sin caracteres extraños de markdown.`;
   };
 
   const sendMessage = useCallback(
