@@ -5,9 +5,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
 
 function ProfileButton() {
-  const { user, profile, dailyUsage, isPremium, setShowLoginModal, signOut } = useAuth();
+  const { user, profile, bypassActive, isPremium, setShowLoginModal, signOut } = useAuth();
 
-  if (!user) {
+  if (!user && !bypassActive) {
     return (
       <TouchableOpacity onPress={() => setShowLoginModal(true)} style={s.loginBtn}>
         <Text style={s.loginText}>Entrar</Text>
@@ -15,7 +15,7 @@ function ProfileButton() {
     );
   }
 
-  const initial = (profile?.full_name ?? user.email ?? 'U')[0].toUpperCase();
+  const initial = bypassActive ? '👑' : (profile?.full_name ?? user?.email ?? 'U')[0].toUpperCase();
 
   return (
     <TouchableOpacity onPress={signOut} style={s.avatar}>
@@ -26,8 +26,8 @@ function ProfileButton() {
 }
 
 function UsagePill() {
-  const { user, dailyUsage, isPremium } = useAuth();
-  if (!user || isPremium) return null;
+  const { user, dailyUsage, isPremium, bypassActive } = useAuth();
+  if (!user || isPremium || bypassActive) return null;
   const analyses = FREE_LIMITS.ai_analyses - dailyUsage.ai_analyses;
   const chats = FREE_LIMITS.chat_messages - dailyUsage.chat_messages;
   return (

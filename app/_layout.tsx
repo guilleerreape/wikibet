@@ -1,9 +1,11 @@
 import { Stack } from 'expo-router';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import LoginModal from '@/components/LoginModal';
 import UpgradeModal from '@/components/UpgradeModal';
+import LandingScreen from '@/components/LandingScreen';
 
 function Modals() {
   const {
@@ -11,7 +13,6 @@ function Modals() {
     showUpgradeModal, setShowUpgradeModal,
     upgradeReason,
   } = useAuth();
-
   return (
     <>
       <LoginModal visible={showLoginModal} onClose={() => setShowLoginModal(false)} />
@@ -24,7 +25,24 @@ function Modals() {
   );
 }
 
-function AppNavigator() {
+function AppGate() {
+  const { isAuthenticated, loading } = useAuth();
+
+  // Cargando sesión inicial
+  if (loading) {
+    return (
+      <View style={s.splash}>
+        <ActivityIndicator size="large" color="#22c55e" />
+      </View>
+    );
+  }
+
+  // No autenticado → solo pantalla de bienvenida
+  if (!isAuthenticated) {
+    return <LandingScreen />;
+  }
+
+  // Autenticado → app completa
   return (
     <>
       <Stack
@@ -57,8 +75,15 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <AppNavigator />
+        <AppGate />
       </AuthProvider>
     </SafeAreaProvider>
   );
 }
+
+const s = StyleSheet.create({
+  splash: {
+    flex: 1, backgroundColor: '#060d1a',
+    alignItems: 'center', justifyContent: 'center',
+  },
+});
