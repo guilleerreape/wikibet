@@ -82,6 +82,10 @@ export interface AdvancedMatchAnalysis {
     xG_promedio: number;
     xGA_promedio: number;
   };
+  alineaciones?: {
+    local: { formacion: string; titulares: string[] };
+    visitante: { formacion: string; titulares: string[] };
+  };
   predicciones: {
     probabilidades: { victoriaLocal: number; empate: number; victoriaVisitante: number };
     cuotasTeoricas: { victoriaLocal: number; empate: number; victoriaVisitante: number };
@@ -180,136 +184,183 @@ export const advancedAIAnalysis = {
     const homeTop3 = homePlayers.slice(0, 3);
     const awayTop3 = awayPlayers.slice(0, 3);
 
-    const prompt = `Eres el analista de apuestas deportivas más experto del mundo. Tu objetivo principal es MAXIMIZAR LA PRECISIÓN de cada una de tus predicciones.
+    const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-INSTRUCCIONES DE PRECISIÓN (OBLIGATORIAS):
-- Usa TODO tu conocimiento actualizado sobre ${homeTeam} y ${awayTeam}: forma reciente, lesiones conocidas, jugadores suspendidos, rotaciones probables, dinámica del vestuario, presión clasificatoria y enfrentamientos directos recientes.
-- Para los mercados de goles (+1.5, +2.5, BTTS): analiza el estilo ofensivo/defensivo real de cada equipo, no solo promedios. Considera si algún equipo juega con bloque bajo, si hay goleadores clave lesionados, y el ritmo goleador reciente.
-- Para el resultado 1X2: pondera el factor campo, el momento de forma y la motivación táctica. NO siempre favorecerás al equipo con mejor WinRate si la situación lo contradice.
-- Si tienes información de que un jugador clave está lesionado o en duda, REFLEJA ESO en las probabilidades.
-- Sé específico y realista. Los porcentajes deben reflejar probabilidades reales, no genéricas.
+    const prompt = `Eres el mejor analista cuantitativo de fútbol del mundo. Debes generar probabilidades PRECISAS y CALIBRADAS para el partido ${homeTeam} vs ${awayTeam}.
 
+═══════════════════════════════════════════
+PASO 1 — EVALUACIÓN DE CALIDAD (haz esto mentalmente antes del JSON)
+═══════════════════════════════════════════
+Evalúa cada equipo con tu conocimiento real (nivel FIFA, forma reciente, plantilla, lesiones):
+• Calidad de escuadra (1-10): ¿Es un equipo top mundial, mediano o débil?
+• Forma reciente: últimos 5 partidos
+• Fortaleza ofensiva y defensiva real
+• Lesiones/suspensiones conocidas de jugadores clave
+
+REGLAS DE CALIBRACIÓN OBLIGATORIAS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. BTTS = P(local marca) × P(visitante marca)
+   → Si un equipo es muy débil ofensivamente (xG < 0.7), P(marca) < 40%
+   → Ejemplo: Portugal(9/10) vs R.D. Congo(3/10) → btts_si ≈ 20-28%, NO 67%
+   → Ejemplo: España vs Arabia Saudita → btts_si ≈ 18-25%
+   → Solo equipos equilibrados (Brasil vs Francia) pueden tener btts_si > 50%
+
+2. PROBABILIDADES 1X2 deben sumar EXACTAMENTE 100
+   → Si un equipo es claramente superior (diferencia de calidad ≥ 3/10):
+     • El favorito debe tener ≥ 55% victoria
+     • El empate: 20-28%
+     • El inferior: ≤ 20% victoria
+   → Partidos equilibrados (diferencia ≤ 1/10): 35-45% / 25-30% / 25-35%
+
+3. GOLES ESPERADOS basados en nivel real:
+   → Top europeo vs África/Asia débil: xG_local 2.0-3.5, xG_visitante 0.3-0.8
+   → Partidos equilibrados top: xG cada lado 1.2-1.8
+   → Over/Under DEBEN derivarse matemáticamente de los xG (usa distribución Poisson)
+
+4. NUNCA uses valores genéricos como "btts_si: 52, over2_5: 55" para todos los partidos
+   → Cada partido tiene su perfil único de probabilidades
+
+5. JUGADORES Y ALINEACIONES:
+   → Usa tu conocimiento real de las plantillas habituales de cada equipo
+   → Menciona jugadores REALES: Cristiano Ronaldo, Messi, Mbappé, Haaland, etc. cuando aplique
+   → Incluye jugadores con lesiones/dudas conocidas en las listas correspondientes
+   → La formación debe ser la real/habitual del entrenador (ej: Portugal → 4-3-3 con CR7)
+
+═══════════════════════════════════════════
+PARTIDO A ANALIZAR
+═══════════════════════════════════════════
 PARTIDO: ${homeTeam} vs ${awayTeam}
 COMPETICIÓN: ${league}
-FECHA: ${new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-DATOS BASE ${homeTeam}: WinRate ${homeTeamData?.winRate || 50}%, avgGoals ${homeTeamData?.avgGoals || 1.5}, avgConceded ${homeTeamData?.avgConceded || 1.2}, formación ${homeTeamData?.formation || '4-3-3'}
-DATOS BASE ${awayTeam}: WinRate ${awayTeamData?.winRate || 45}%, avgGoals ${awayTeamData?.avgGoals || 1.3}, avgConceded ${awayTeamData?.avgConceded || 1.3}, formación ${awayTeamData?.formation || '4-3-3'}
-JUGADORES ${homeTeam}: ${homeTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D'}
-JUGADORES ${awayTeam}: ${awayTop3.map(p => `${p.name}(${p.goals}G)`).join(', ') || 'N/D'}
-ENTRENADORES: ${homeTeamData?.coach || 'N/D'} vs ${awayTeamData?.coach || 'N/D'}
+FECHA: ${today}
+DATOS SISTEMA ${homeTeam}: avgGoals=${homeTeamData?.avgGoals || 'N/D'}, avgConceded=${homeTeamData?.avgConceded || 'N/D'}, winRate=${homeTeamData?.winRate || 'N/D'}%
+DATOS SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, avgConceded=${awayTeamData?.avgConceded || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%
+JUGADORES SISTEMA ${homeTeam}: ${homeTop3.map(p => p.name).join(', ') || 'N/D'}
+JUGADORES SISTEMA ${awayTeam}: ${awayTop3.map(p => p.name).join(', ') || 'N/D'}
 
-⚠️ REGLA CRÍTICA: Solo menciona jugadores/lesiones de ${homeTeam} y ${awayTeam}. NUNCA de otros equipos.
+⚠️ IMPORTANTE: Los valores del "DATOS SISTEMA" son de referencia. TU CONOCIMIENTO REAL sobre estos equipos prevalece. Si sabes que ${homeTeam} tiene una calidad muy superior, REFLEJA ESO en probabilidades.
 
-Devuelve SOLO JSON válido (sin markdown, sin \`\`\`), con este esquema EXACTO:
+⚠️ Solo menciona jugadores/lesiones de ${homeTeam} y ${awayTeam}. NUNCA de otros equipos.
+
+Devuelve SOLO JSON válido (sin markdown, sin \`\`\`). Todos los números en los campos de probabilidad son ENTEROS 0-100 (no decimales excepto en xG y cuotas). El JSON debe tener este esquema:
 
 {
-  "resumenEjecutivo": "párrafo 3-4 frases sobre el partido y contexto",
-  "importanciaDelPartido": "qué se juegan ambos equipos",
+  "resumenEjecutivo": "3-4 frases específicas sobre el partido, contexto y pronóstico clave",
+  "importanciaDelPartido": "qué se juegan ambos equipos en esta competición",
   "historialDirecto": {
-    "totalPartidos": 12,
-    "victoriasLocal": 5,
-    "empates": 3,
-    "victoriasVisitante": 4,
-    "golesPromedio": 2.4,
-    "analisis": "análisis H2H con patrones"
+    "totalPartidos": 0,
+    "victoriasLocal": 0,
+    "empates": 0,
+    "victoriasVisitante": 0,
+    "golesPromedio": 0.0,
+    "analisis": "historial H2H real o estimado con contexto"
   },
   "equipoLocal": {
-    "fortalezas": ["fortaleza 1","fortaleza 2","fortaleza 3"],
-    "debilidades": ["debilidad 1","debilidad 2"],
-    "forma": "últimos 5 partidos con resultados",
-    "formacion": "4-3-3",
-    "motivacion": "nivel motivacional",
-    "lesionados": [],
-    "dudosos": [],
-    "xG_promedio": 1.8,
-    "xGA_promedio": 1.1
+    "fortalezas": ["fortaleza real 1", "fortaleza real 2", "fortaleza real 3"],
+    "debilidades": ["debilidad real 1", "debilidad real 2"],
+    "forma": "últimos 5 partidos reales o estimados con resultados",
+    "formacion": "formación real del equipo",
+    "motivacion": "contexto motivacional específico",
+    "lesionados": ["jugador lesionado si se conoce"],
+    "dudosos": ["jugador dudoso si se conoce"],
+    "xG_promedio": 0.0,
+    "xGA_promedio": 0.0
   },
   "equipoVisitante": {
-    "fortalezas": ["fortaleza 1","fortaleza 2"],
-    "debilidades": ["debilidad 1","debilidad 2"],
+    "fortalezas": ["fortaleza real 1", "fortaleza real 2"],
+    "debilidades": ["debilidad real 1", "debilidad real 2"],
     "forma": "últimos 5 partidos",
-    "formacion": "4-2-3-1",
+    "formacion": "formación real",
     "motivacion": "contexto motivacional",
     "lesionados": [],
     "dudosos": [],
-    "xG_promedio": 1.3,
-    "xGA_promedio": 1.4
+    "xG_promedio": 0.0,
+    "xGA_promedio": 0.0
+  },
+  "alineaciones": {
+    "local": {
+      "formacion": "4-3-3",
+      "titulares": ["Portero", "Defensa1", "Defensa2", "Defensa3", "Defensa4", "Medio1", "Medio2", "Medio3", "Extremo1", "Delantero", "Extremo2"]
+    },
+    "visitante": {
+      "formacion": "4-2-3-1",
+      "titulares": ["Portero", "Defensa1", "Defensa2", "Defensa3", "Defensa4", "MedDef1", "MedDef2", "Mediapunta1", "Mediapunta2", "Mediapunta3", "Delantero"]
+    }
   },
   "predicciones": {
-    "probabilidades": {"victoriaLocal": 48, "empate": 27, "victoriaVisitante": 25},
-    "cuotasTeoricas": {"victoriaLocal": 1.94, "empate": 3.45, "victoriaVisitante": 3.72},
-    "golesEsperados": {"local": 1.8, "visitante": 1.2, "total": 3.0},
+    "probabilidades": {"victoriaLocal": 0, "empate": 0, "victoriaVisitante": 0},
+    "cuotasTeoricas": {"victoriaLocal": 0.0, "empate": 0.0, "victoriaVisitante": 0.0},
+    "golesEsperados": {"local": 0.0, "visitante": 0.0, "total": 0.0},
     "goles": {
-      "over0_5": {"local": 83, "visitante": 70, "total": 95},
-      "over1_5": {"local": 62, "visitante": 47, "total": 78},
-      "over2_5": {"local": 38, "visitante": 26, "total": 55},
-      "over3_5": {"local": 18, "visitante": 11, "total": 30}
+      "over0_5": {"local": 0, "visitante": 0, "total": 0},
+      "over1_5": {"local": 0, "visitante": 0, "total": 0},
+      "over2_5": {"local": 0, "visitante": 0, "total": 0},
+      "over3_5": {"local": 0, "visitante": 0, "total": 0}
     },
     "tiros": {
-      "total": {"local": 13, "visitante": 9, "total": 22},
-      "a_puerta": {"local": 5, "visitante": 3, "total": 8},
+      "total": {"local": 0, "visitante": 0, "total": 0},
+      "a_puerta": {"local": 0, "visitante": 0, "total": 0},
       "jugadores": [
-        {"nombre": "${homeTopScorer?.name || 'Delantero local'}", "equipo": "local", "tiros": 4, "a_puerta": 2},
-        {"nombre": "${homeTop3[1]?.name || 'Medio local'}", "equipo": "local", "tiros": 3, "a_puerta": 1},
-        {"nombre": "${awayTopScorer?.name || 'Delantero visitante'}", "equipo": "visitante", "tiros": 3, "a_puerta": 1},
-        {"nombre": "${awayTop3[1]?.name || 'Medio visitante'}", "equipo": "visitante", "tiros": 2, "a_puerta": 1}
+        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0},
+        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0},
+        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0},
+        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0}
       ]
     },
     "mercados": {
-      "over2_5": 55, "under2_5": 45, "btts_si": 52, "btts_no": 48, "over1_5": 78, "over3_5": 30
+      "over2_5": 0, "under2_5": 0, "btts_si": 0, "btts_no": 0, "over1_5": 0, "over3_5": 0
     },
     "corners": {
-      "total_esperado": 10, "over8_5": 62, "over9_5": 48, "over10_5": 32, "under8_5": 38,
-      "local": 6, "visitante": 4
+      "total_esperado": 0, "over8_5": 0, "over9_5": 0, "over10_5": 0, "under8_5": 0,
+      "local": 0, "visitante": 0
     },
-    "faltas": {"total_esperado": 23, "local": 11, "visitante": 12, "over20_5": 65},
+    "faltas": {"total_esperado": 0, "local": 0, "visitante": 0, "over20_5": 0},
     "tarjetas": {
-      "total_esperado": 4.2, "over2_5": 74, "over3_5": 55, "over4_5": 35, "under3_5": 45,
-      "amarillas_local": 2, "amarillas_visitante": 2, "rojaProb": 8,
+      "total_esperado": 0.0, "over2_5": 0, "over3_5": 0, "over4_5": 0, "under3_5": 0,
+      "amarillas_local": 0, "amarillas_visitante": 0, "rojaProb": 0,
       "jugadores_riesgo": [
-        {"nombre": "${homeTop3[0]?.name || 'Centrocampista'}", "equipo": "local", "probabilidad": 20},
-        {"nombre": "${awayTop3[0]?.name || 'Defensa'}", "equipo": "visitante", "probabilidad": 18}
+        {"nombre": "nombre real", "equipo": "local", "probabilidad": 0},
+        {"nombre": "nombre real", "equipo": "visitante", "probabilidad": 0}
       ]
     },
     "goleadores": {
-      "primer_goleador": {"nombre": "${homeTopScorer?.name || 'Delantero'}", "equipo": "${homeTeam}", "probabilidad": 24, "cuota": 4.2},
+      "primer_goleador": {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
       "anytime": [
-        {"nombre": "${homeTopScorer?.name || 'Delantero'}", "equipo": "${homeTeam}", "probabilidad": 48, "cuota": 2.1},
-        {"nombre": "${homeTop3[1]?.name || 'Mediapunta'}", "equipo": "${homeTeam}", "probabilidad": 32, "cuota": 3.1},
-        {"nombre": "${awayTopScorer?.name || 'Delantero'}", "equipo": "${awayTeam}", "probabilidad": 38, "cuota": 2.6},
-        {"nombre": "${awayTop3[1]?.name || 'Extremo'}", "equipo": "${awayTeam}", "probabilidad": 25, "cuota": 4.0}
+        {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0}
       ]
     },
     "resultados_exactos": [
-      {"resultado": "1-0 ${homeTeam}", "probabilidad": 17, "cuota": 5.8},
-      {"resultado": "1-1", "probabilidad": 14, "cuota": 7.0},
-      {"resultado": "2-0 ${homeTeam}", "probabilidad": 11, "cuota": 9.0},
-      {"resultado": "2-1 ${homeTeam}", "probabilidad": 10, "cuota": 10.0},
-      {"resultado": "0-1 ${awayTeam}", "probabilidad": 9, "cuota": 11.0}
+      {"resultado": "resultado más probable", "probabilidad": 0, "cuota": 0.0},
+      {"resultado": "2do más probable", "probabilidad": 0, "cuota": 0.0},
+      {"resultado": "3ro más probable", "probabilidad": 0, "cuota": 0.0},
+      {"resultado": "4to más probable", "probabilidad": 0, "cuota": 0.0},
+      {"resultado": "5to más probable", "probabilidad": 0, "cuota": 0.0}
     ],
-    "resultadoMasProbable": "1-0 ${homeTeam}",
-    "primerGoleador": {"nombre": "${homeTopScorer?.name || 'Delantero'}", "equipo": "${homeTeam}", "probabilidad": 24, "cuota": 4.2}
+    "resultadoMasProbable": "X-X Equipo",
+    "primerGoleador": {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0}
   },
   "tactico": {
-    "sistemaLocal": "4-3-3 posesión",
-    "sistemaVisitante": "4-2-3-1 bloque medio",
-    "enfoque": "descripción táctica 2-3 frases",
-    "ventajaTactica": "quién tiene ventaja y dónde",
-    "clavesDelPartido": ["clave táctica 1","clave 2","clave 3"]
+    "sistemaLocal": "formación + estilo",
+    "sistemaVisitante": "formación + estilo",
+    "enfoque": "descripción táctica 2-3 frases específica",
+    "ventajaTactica": "quién tiene ventaja táctica y por qué",
+    "clavesDelPartido": ["clave táctica real 1", "clave 2", "clave 3"]
   },
   "factoresExternos": {
     "clima": "condiciones y efecto en el juego",
     "arbitro": "análisis del arbitraje esperado",
-    "factorCasa": "ventaja local en el Mundial",
-    "fatiga": "estado físico y rotaciones"
+    "factorCasa": "ventaja local / sede",
+    "fatiga": "estado físico y rotaciones probables"
   },
   "apuestasRecomendadas": [
-    {"mercado": "Resultado 1X2", "seleccion": "Victoria ${homeTeam}", "cuota": 1.94, "probabilidad": 48, "valor": 0.07, "riesgo": "bajo", "razonamiento": "razón detallada del value"},
-    {"mercado": "Total goles", "seleccion": "Over 2.5 goles", "cuota": 1.85, "probabilidad": 55, "valor": 0.02, "riesgo": "medio", "razonamiento": "argumento con xG y estadísticas"},
-    {"mercado": "Córners", "seleccion": "Over 9.5 córners", "cuota": 1.90, "probabilidad": 48, "valor": 0.01, "riesgo": "medio", "razonamiento": "histórico de córners de ambos equipos"}
+    {"mercado": "Resultado 1X2", "seleccion": "descripción", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "razonamiento específico con datos"},
+    {"mercado": "Total goles", "seleccion": "Over/Under X.5 goles", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "medio", "razonamiento": "argumento con xG calculados"},
+    {"mercado": "Ambos marcan", "seleccion": "Sí/No", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "medio", "razonamiento": "basado en P(local marca) × P(visitante marca)"}
   ],
-  "conclusion": "conclusión 3-4 frases con pronóstico definitivo",
-  "confianza": 78
+  "conclusion": "conclusión 3-4 frases con pronóstico definitivo, resultado más probable y apuesta principal recomendada",
+  "confianza": 0
 }`;
 
     try {

@@ -407,6 +407,22 @@ export default function MatchesScreen() {
   const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
   const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
+  // Timestamps de última actualización de pronósticos por matchId
+  const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('wikibet_pred_ts') : null;
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  });
+
+  function savePredTimestamp(matchId: string) {
+    const now = Date.now();
+    setPredTimestamps(prev => {
+      const next = { ...prev, [matchId]: now };
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem('wikibet_pred_ts', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
 
   const loadData = useCallback(async (comp: Competition) => {
     setLoadingMatches(true);
@@ -526,6 +542,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       // Dynamic: AI emits as many confident predictions as it wants
       const preds = buildConfidentPredictions(result.predicciones);
       savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
+      savePredTimestamp(match.id);
       // If match already finished, also record the actual result
       if (match.status === 'finished' &&
           match.homeScore !== undefined &&
@@ -657,6 +674,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const { time } = formatDate(match.date);
     const isLive = match.status === 'live';
     const isFinished = match.status === 'finished';
+    const predTs = predTimestamps[match.id];
+    const predTimeStr = predTs ? new Date(predTs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null;
     const homeFlag = getFlag(match.homeTeam);
     const awayFlag = getFlag(match.awayTeam);
     const livePulse = useRef(new Animated.Value(0)).current;
@@ -681,6 +700,11 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const cardContent = (
       <>
         {isLive && <View style={styles.liveBadge}><Text style={styles.liveText}>● EN VIVO</Text></View>}
+        {!isFinished && !isLive && predTimeStr && (
+          <View style={styles.predUpdateBadge}>
+            <Text style={styles.predUpdateText}>🤖 Última actualización pronóstico: {predTimeStr} h</Text>
+          </View>
+        )}
         <View style={styles.matchRow}>
           <View style={styles.teamSide}>
             {homeFlag ? <Text style={styles.matchFlag}>{homeFlag}</Text> : null}
@@ -1483,6 +1507,11 @@ const styles = StyleSheet.create({
   cardLive: { borderColor: colors.accent.red, borderWidth: 1.5 },
   liveBadge: { marginBottom: 6, alignSelf: 'flex-start' },
   liveText: { color: colors.accent.red, fontSize: 10, fontWeight: '800' },
+  predUpdateBadge: {
+    marginBottom: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+    backgroundColor: '#0f2a1a', borderWidth: 1, borderColor: '#1a4a2a', alignSelf: 'flex-start',
+  },
+  predUpdateText: { color: '#22c55e', fontSize: 9, fontWeight: '700' },
   matchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   teamSide: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 },
   matchFlag: { fontSize: 16 },
