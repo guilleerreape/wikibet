@@ -3,7 +3,7 @@ import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Animated, Pressable,
 } from 'react-native';
-import { getAccuracyStats, AccuracyStats } from '../services/predictionTracker';
+import { getAccuracyStats, seedHistoricalData, AccuracyStats } from '../services/predictionTracker';
 import { colors } from '../constants/colors';
 
 interface Props {
@@ -77,21 +77,29 @@ function PulsingRing({ pct }: { pct: number }) {
 export default function AccuracyModal({ visible, onClose }: Props) {
   const [stats, setStats] = useState<AccuracyStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const load = async () => {
     setLoading(true);
-    const data = await getAccuracyStats();
+    fadeAnim.setValue(0);
+    let data = await getAccuracyStats();
+
+    // Auto-sembrar partidos históricos si la BD está vacía
+    if (!data || data.total === 0) {
+      setSeeding(true);
+      await seedHistoricalData();
+      setSeeding(false);
+      data = await getAccuracyStats();
+    }
+
     setStats(data);
     setLoading(false);
     Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   };
 
   useEffect(() => {
-    if (visible) {
-      fadeAnim.setValue(0);
-      load();
-    }
+    if (visible) load();
   }, [visible]);
 
   const rows: { label: string; key: keyof Pick<AccuracyStats, 'victorias' | 'empates' | 'visitante'>; emoji: string; color: string; delay: number }[] = [
@@ -119,13 +127,18 @@ export default function AccuracyModal({ visible, onClose }: Props) {
             </TouchableOpacity>
           </View>
           <Text style={s.headerSub}>
-            Todos los partidos · Desde Mundial 2026 · Tiempo real
+            Todas las competiciones · Victorias, empates y derrotas · Tiempo real global
           </Text>
 
-          {loading && !stats ? (
+          {loading ? (
             <View style={s.center}>
               <ActivityIndicator size="large" color={colors.accent.green} />
-              <Text style={s.loadingText}>Cargando estadísticas globales...</Text>
+              <Text style={s.loadingText}>
+                {seeding ? '⚡ Cargando partidos del Mundial 2026...' : 'Cargando estadísticas globales...'}
+              </Text>
+              {seeding && (
+                <Text style={s.seedingSubText}>Generando predicciones de IA para los primeros 20 partidos</Text>
+              )}
             </View>
           ) : stats && stats.total > 0 ? (
             <Animated.View style={{ opacity: fadeAnim }}>
@@ -168,20 +181,37 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                   })}
                 </View>
 
+                {/* How it works */}
+                <View style={s.howBox}>
+                  <Text style={s.howTitle}>¿Cómo funciona?</Text>
+                  <View style={s.howRow}>
+                    <Text style={s.howIcon}>🤖</Text>
+                    <Text style={s.howText}>
+                      Cada vez que cualquier usuario analiza un partido, la IA registra su pronóstico (V/X/D). Cuando el partido termina, se compara con el resultado real.
+                    </Text>
+                  </View>
+                  <View style={s.howRow}>
+                    <Text style={s.howIcon}>🌍</Text>
+                    <Text style={s.howText}>
+                      Las estadísticas son <Text style={s.howBold}>compartidas entre todos los usuarios</Text> en tiempo real. Todos veis exactamente el mismo porcentaje.
+                    </Text>
+                  </View>
+                  <View style={s.howRow}>
+                    <Text style={s.howIcon}>📅</Text>
+                    <Text style={s.howText}>
+                      Empezamos a contar desde el <Text style={s.howBold}>día 1 del Mundial 2026</Text>. Se acumula de forma permanente con cada nueva temporada y competición.
+                    </Text>
+                  </View>
+                  <View style={s.howRow}>
+                    <Text style={s.howIcon}>🏆</Text>
+                    <Text style={s.howText}>
+                      Incluye <Text style={s.howBold}>todas las competiciones</Text>: Mundial, LaLiga, Premier League, Bundesliga, Serie A, Ligue 1, Champions League, y las que se añadan en el futuro.
+                    </Text>
+                  </View>
+                </View>
+
                 {/* Footer meta */}
                 <View style={s.metaBox}>
-                  <View style={s.metaRow}>
-                    <Text style={s.metaIcon}>📅</Text>
-                    <Text style={s.metaText}>Contabilizando desde Mundial 2026 — todas las jornadas</Text>
-                  </View>
-                  <View style={s.metaRow}>
-                    <Text style={s.metaIcon}>🌍</Text>
-                    <Text style={s.metaText}>Mundial 2026 · LaLiga · Premier · Serie A · Bundesliga · Ligue 1 · UCL</Text>
-                  </View>
-                  <View style={s.metaRow}>
-                    <Text style={s.metaIcon}>🔗</Text>
-                    <Text style={s.metaText}>Estadísticas compartidas globalmente — mismo dato para todos los usuarios</Text>
-                  </View>
                   {stats.lastUpdated && (
                     <View style={s.metaRow}>
                       <Text style={s.metaIcon}>⏱️</Text>
@@ -190,10 +220,16 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                       </Text>
                     </View>
                   )}
+                  <View style={s.metaRow}>
+                    <Text style={s.metaIcon}>📊</Text>
+                    <Text style={s.metaText}>
+                      Total analizado: {stats.total} partidos · {stats.correct} aciertos
+                    </Text>
+                  </View>
                 </View>
 
                 <Text style={s.disclaimer}>
-                  * La IA predice el resultado más probable. Los porcentajes reflejan la precisión histórica del modelo en V/X/D para cada partido analizado.
+                  * Contabiliza únicamente el pronóstico del resultado final (1X2). La IA puede acertar el resultado sin acertar el marcador exacto.
                 </Text>
               </ScrollView>
             </Animated.View>
@@ -289,11 +325,23 @@ const s = StyleSheet.create({
   metaIcon: { fontSize: 14, width: 22 },
   metaText: { flex: 1, fontSize: 11, color: '#6b7280', lineHeight: 16 },
 
+  // How it works
+  howBox: {
+    backgroundColor: '#0d1f0d', borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: '#1a3a1a', marginBottom: 16, gap: 12,
+  },
+  howTitle: { fontSize: 12, fontWeight: '800', color: '#22c55e', letterSpacing: 0.3, marginBottom: 4 },
+  howRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  howIcon: { fontSize: 16, width: 22 },
+  howText: { flex: 1, fontSize: 12, color: '#9ca3af', lineHeight: 17 },
+  howBold: { color: '#e5e7eb', fontWeight: '700' },
+
   disclaimer: { fontSize: 10, color: '#374151', fontStyle: 'italic', lineHeight: 14 },
 
   // Empty/loading states
   center: { padding: 40, alignItems: 'center', gap: 12 },
-  loadingText: { color: '#9ca3af', fontSize: 13 },
+  loadingText: { color: '#9ca3af', fontSize: 13, textAlign: 'center' },
+  seedingSubText: { color: '#6b7280', fontSize: 11, textAlign: 'center', marginTop: 4, paddingHorizontal: 20 },
   emptyEmoji: { fontSize: 48 },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: '#fff', textAlign: 'center' },
   emptyText: { fontSize: 12, color: '#6b7280', textAlign: 'center', lineHeight: 18 },

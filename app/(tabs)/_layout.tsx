@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
-import { getQuickStats } from '@/services/predictionTracker';
+import { getQuickStats, seedHistoricalData } from '@/services/predictionTracker';
 import AccuracyModal from '@/components/AccuracyModal';
 
 const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
@@ -229,24 +229,40 @@ function AccuracyButton({ onPress }: { onPress: () => void }) {
   const pulse  = useRef(new Animated.Value(1)).current;
   const glow   = useRef(new Animated.Value(0)).current;
   const [quickPct, setQuickPct] = useState<number | null>(null);
+  const [ready, setReady] = useState(false);
+
+  const loadAndSeed = async () => {
+    try {
+      let q = await getQuickStats();
+      if (!q || q.total < 5) {
+        // DB vacía → sembrar datos históricos del Mundial 2026
+        await seedHistoricalData();
+        q = await getQuickStats();
+      }
+      setQuickPct(q ? q.pct : null);
+    } catch {
+      // silent — botón mostrará '—'
+    } finally {
+      setReady(true);
+    }
+  };
 
   useEffect(() => {
     // Pulsing ring
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.12, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1,    duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1.10, duration: 1100, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1,    duration: 1100, useNativeDriver: true }),
       ])
     ).start();
     // Glow color cycle
     Animated.loop(
       Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 2000, useNativeDriver: false }),
-        Animated.timing(glow, { toValue: 0, duration: 2000, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 1, duration: 2200, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0, duration: 2200, useNativeDriver: false }),
       ])
     ).start();
-    // Load quick % for badge
-    getQuickStats().then(q => { if (q) setQuickPct(q.pct); });
+    loadAndSeed();
     return () => { pulse.stopAnimation(); glow.stopAnimation(); };
   }, []);
 
@@ -259,9 +275,12 @@ function AccuracyButton({ onPress }: { onPress: () => void }) {
     <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
       <Animated.View style={[s.accuracyBtn, { borderColor, transform: [{ scale: pulse }] }]}>
         <Text style={s.accuracyEmoji}>🎯</Text>
-        {quickPct !== null && (
-          <Text style={s.accuracyPct}>{quickPct}%</Text>
-        )}
+        <View style={s.accuracyTextCol}>
+          <Text style={s.accuracyPct}>
+            {ready ? (quickPct !== null ? `${quickPct}%` : '—') : '···'}
+          </Text>
+          <Text style={s.accuracyLabel}>% Aciertos IA</Text>
+        </View>
       </Animated.View>
     </TouchableOpacity>
   );
@@ -368,13 +387,15 @@ const s = StyleSheet.create({
   pillText: { color: '#9ca3af', fontSize: 11, fontWeight: '600' },
   // Accuracy button
   accuracyBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
     borderWidth: 1.5, borderRadius: 10,
-    paddingHorizontal: 7, paddingVertical: 4,
+    paddingHorizontal: 8, paddingVertical: 5,
     backgroundColor: '#0f1a0f',
   },
-  accuracyEmoji: { fontSize: 14 },
-  accuracyPct: { fontSize: 11, fontWeight: '900', color: '#22c55e' },
+  accuracyEmoji: { fontSize: 13 },
+  accuracyTextCol: { flexDirection: 'column', alignItems: 'flex-start' },
+  accuracyPct: { fontSize: 13, fontWeight: '900', color: '#22c55e', lineHeight: 15 },
+  accuracyLabel: { fontSize: 9, fontWeight: '600', color: '#9ca3af', lineHeight: 11 },
 });
 
 // ─── Estilos menú ─────────────────────────────────────────────────────────────
