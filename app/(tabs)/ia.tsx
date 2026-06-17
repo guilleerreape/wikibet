@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { useChat } from '@/hooks/useChat';
@@ -159,6 +160,19 @@ const msgStyles = StyleSheet.create({
   },
 });
 
+function PulsingDot({ delay = 0 }: { delay?: number }) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    setTimeout(() => {
+      Animated.loop(Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+      ])).start();
+    }, delay);
+  }, []);
+  return <Animated.View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#22c55e', opacity }} />;
+}
+
 export default function IAScreen() {
   const { messages, loading, sendMessage, clearMessages, generateDynamicSuggestions } = useChat();
   const { user, isPremium, dailyUsage, trackChat, setShowLoginModal } = useAuth();
@@ -166,15 +180,20 @@ export default function IAScreen() {
   const [inputText, setInputText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const headerBg = useRef(new Animated.Value(0)).current;
 
   const chatLeft = isPremium ? Infinity : Math.max(0, FREE_LIMITS.chat_messages - dailyUsage.chat_messages);
 
-  // Genera sugerencias dinámicas al cargar
+  // Genera sugerencias dinámicas al cargar + animación del header
   useEffect(() => {
     setLoadingSuggestions(true);
     generateDynamicSuggestions()
       .then(s => setSuggestions(s))
       .finally(() => setLoadingSuggestions(false));
+    Animated.loop(Animated.sequence([
+      Animated.timing(headerBg, { toValue: 1, duration: 3000, useNativeDriver: false }),
+      Animated.timing(headerBg, { toValue: 0, duration: 3000, useNativeDriver: false }),
+    ])).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -204,16 +223,27 @@ export default function IAScreen() {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={styles.header}>
+      <Animated.View style={[styles.header, {
+        backgroundColor: headerBg.interpolate({ inputRange: [0, 1], outputRange: ['#0a1628', '#0d1f10'] }),
+      }]}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.subtitle}>Analista IA · jugadores · equipos · partidos</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+            <View style={{ flexDirection: 'row', gap: 3 }}>
+              {[0, 1, 2].map(i => <PulsingDot key={i} delay={i * 300} />)}
+            </View>
+            <Text style={styles.subtitle}>Analista IA · jugadores · equipos · partidos</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+            <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700', letterSpacing: 1 }}>IA ACTIVA</Text>
+          </View>
         </View>
         {messages.length > 0 && (
-          <TouchableOpacity onPress={clearMessages} disabled={loading}>
-            <Text style={styles.clearText}>Limpiar</Text>
+          <TouchableOpacity onPress={clearMessages} disabled={loading} style={styles.clearBtnWrap}>
+            <Text style={styles.clearText}>🗑 Limpiar</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </Animated.View>
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -361,12 +391,14 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg.primary },
   flex: { flex: 1 },
   header: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border.subtle,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: '#1a2f1a',
   },
   title: { fontSize: 22, fontWeight: 'bold', color: colors.text.primary },
   subtitle: { fontSize: 11, color: colors.text.muted, marginTop: 2 },
   clearText: { fontSize: 12, color: colors.accent.red, fontWeight: '600' },
+  clearBtnWrap: { paddingLeft: 8 },
   messagesScroll: { flex: 1 },
   messagesContent: { padding: 12, paddingBottom: 16 },
   emptyBox: { alignItems: 'center', paddingTop: 30, paddingHorizontal: 20 },

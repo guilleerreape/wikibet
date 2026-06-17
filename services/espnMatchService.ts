@@ -399,6 +399,83 @@ const STANDINGS_STATIC: Record<string, StandingEntry[]> = {
   ],
 };
 
+// ─── Match events & lineups from ESPN summary API ────────────────────────────
+
+export interface MatchEvent {
+  minute: number;
+  type: 'goal' | 'yellow' | 'red' | 'penalty' | 'owngoal' | 'sub';
+  team: 'home' | 'away';
+  player: string;
+  detail?: string;
+}
+
+export interface MatchLineup {
+  homeFormation: string;
+  awayFormation: string;
+  homePlayers: Array<{ name: string; number: number; position: string }>;
+  awayPlayers: Array<{ name: string; number: number; position: string }>;
+}
+
+// Returns events and lineups from ESPN summary API
+// Tries: https://site.api.espn.com/apis/site/v2/sports/soccer/{leagueId}/summary?event={espnId}
+// For WC: leagueId = 'FIFA.WORLD'
+// The espnId needs to come from the actual ESPN event ID (not our static IDs)
+// So this will mostly fail for our static data and we should return empty arrays gracefully
+export async function getMatchDetails(leagueId: string, matchId: string): Promise<{ events: MatchEvent[]; lineup: MatchLineup | null }> {
+  try {
+    // Only attempt for non-static IDs (our static IDs start with 'wc_', 'esp', etc.)
+    // Real ESPN IDs are numeric strings
+    if (!matchId.match(/^\d+$/)) return { events: [], lineup: null };
+
+    const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${leagueId}/summary?event=${matchId}`;
+    const res = await fetchWithTimeout(url, 6000);
+    if (!res.ok) return { events: [], lineup: null };
+    const data = await res.json();
+
+    // Parse events from data.plays or data.keyEvents
+    const events: MatchEvent[] = [];
+    const plays = data.plays ?? data.keyEvents ?? [];
+    for (const play of plays) {
+      const type = play.type?.text?.toLowerCase() ?? '';
+      const team: 'home' | 'away' = play.homeAway === 'home' ? 'home' : 'away';
+      const minute = play.clock?.value ? Math.floor(play.clock.value / 60) : 0;
+      const player = play.participants?.[0]?.athlete?.shortName ?? play.participants?.[0]?.athlete?.displayName ?? '';
+
+      if (type.includes('goal') && !type.includes('own')) events.push({ minute, type: 'goal', team, player });
+      else if (type.includes('own')) events.push({ minute, type: 'owngoal', team, player });
+      else if (type.includes('yellow')) events.push({ minute, type: 'yellow', team, player });
+      else if (type.includes('red')) events.push({ minute, type: 'red', team, player });
+      else if (type.includes('penalty')) events.push({ minute, type: 'penalty', team, player });
+    }
+
+    // Parse lineups
+    let lineup: MatchLineup | null = null;
+    const rosters = data.rosters ?? [];
+    if (rosters.length >= 2) {
+      const home = rosters.find((r: any) => r.homeAway === 'home') ?? rosters[0];
+      const away = rosters.find((r: any) => r.homeAway === 'away') ?? rosters[1];
+      lineup = {
+        homeFormation: home.formation ?? '4-3-3',
+        awayFormation: away.formation ?? '4-3-3',
+        homePlayers: (home.athletes ?? []).filter((a: any) => a.starter).slice(0, 11).map((a: any) => ({
+          name: a.athlete?.shortName ?? a.athlete?.displayName ?? '',
+          number: a.jersey ? parseInt(a.jersey) : 0,
+          position: a.position?.abbreviation ?? '',
+        })),
+        awayPlayers: (away.athletes ?? []).filter((a: any) => a.starter).slice(0, 11).map((a: any) => ({
+          name: a.athlete?.shortName ?? a.athlete?.displayName ?? '',
+          number: a.jersey ? parseInt(a.jersey) : 0,
+          position: a.position?.abbreviation ?? '',
+        })),
+      };
+    }
+
+    return { events, lineup };
+  } catch {
+    return { events: [], lineup: null };
+  }
+}
+
 export const espnMatchService = {
   async getMatches(competitionId: string): Promise<CompetitionMatch[]> {
     const comp = COMPETITIONS.find(c => c.id === competitionId);

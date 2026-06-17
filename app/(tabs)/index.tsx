@@ -14,8 +14,9 @@ import {
   Animated,
 } from 'react-native';
 import { colors } from '@/constants/colors';
-import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC } from '@/services/espnMatchService';
+import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC, getMatchDetails, MatchLineup, MatchEvent } from '@/services/espnMatchService';
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
+import LineupPitch from '@/components/LineupPitch';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
@@ -404,6 +405,8 @@ export default function MatchesScreen() {
   const [analysisError, setAnalysisError] = useState(false);
   const [postMatchComment, setPostMatchComment] = useState<string | null>(null);
   const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
+  const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
+  const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
 
   const loadData = useCallback(async (comp: Competition) => {
     setLoadingMatches(true);
@@ -501,7 +504,14 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setAnalysisError(false);
     setPostMatchComment(null);
     setPostMatchCommentLoading(false);
+    setMatchLineup(null);
+    setMatchEvents([]);
     setAnalysisLoading(true);
+    // Fetch ESPN match details (events + lineup) — only works for numeric ESPN IDs
+    getMatchDetails(match.leagueId, match.id).then(({ events, lineup }) => {
+      setMatchEvents(events);
+      setMatchLineup(lineup);
+    });
     try {
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
         match.homeTeam, match.awayTeam, match.league
@@ -722,6 +732,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     );
   };
 
+  // ─── Build predicted lineup from AI analysis data ────────────────────────────
+  function buildPredictedLineup(homeTeam: string, awayTeam: string, anal: any): MatchLineup {
+    const homeForm = anal?.alineaciones?.local?.formacion ?? '4-3-3';
+    const awayForm = anal?.alineaciones?.visitante?.formacion ?? '4-3-3';
+    const homePlayers = (anal?.alineaciones?.local?.titulares ?? []).map((p: any) => ({
+      name: typeof p === 'string' ? (p.split(' ').pop() ?? p) : (p.nombre ?? p.name ?? ''),
+      number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
+      position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
+    }));
+    const awayPlayers = (anal?.alineaciones?.visitante?.titulares ?? []).map((p: any) => ({
+      name: typeof p === 'string' ? (p.split(' ').pop() ?? p) : (p.nombre ?? p.name ?? ''),
+      number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
+      position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
+    }));
+    return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
+  }
+
   // ─── Analysis modal content ──────────────────────────────────────────────────
   const AnalysisContent = () => {
     if (!analysis || !selectedMatch) return null;
@@ -746,6 +773,27 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
     return (
       <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+
+        {/* ALINEACIONES */}
+        {(() => {
+          const effectiveLineup = matchLineup ?? buildPredictedLineup(selectedMatch!.homeTeam, selectedMatch!.awayTeam, analysis);
+          return (
+            <Section icon="🏟️" title="ALINEACIONES" accent="#10b981" delay={0}>
+              <LineupPitch
+                homeTeam={selectedMatch!.homeTeam}
+                awayTeam={selectedMatch!.awayTeam}
+                homeFormation={effectiveLineup.homeFormation}
+                awayFormation={effectiveLineup.awayFormation}
+                homePlayers={effectiveLineup.homePlayers}
+                awayPlayers={effectiveLineup.awayPlayers}
+                isLoading={false}
+              />
+              <Text style={{ color: '#6b7280', fontSize: 10, textAlign: 'center', marginTop: 6 }}>
+                {matchLineup ? 'Alineación oficial · Fuente: ESPN' : '🤖 Alineación predicha por IA · Se actualizará cuando sea oficial'}
+              </Text>
+            </Section>
+          );
+        })()}
 
         {/* COMENTARIO IA — overlay exclusivo para partidos terminados */}
         {isFinished && (
@@ -776,6 +824,26 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
         {/* PANEL APUESTA DE LA IA — siempre visible (upcoming + played) */}
         <AiBetPanel match={selectedMatch} analysis={analysis} />
+
+        {/* EVENTOS DEL PARTIDO */}
+        {(selectedMatch!.status === 'finished' || selectedMatch!.status === 'live') && matchEvents.length > 0 && (
+          <Section icon="⚡" title="EVENTOS DEL PARTIDO" accent="#f59e0b" delay={40}>
+            <View style={{ gap: 6 }}>
+              {matchEvents.map((ev, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#1f2937' }}>
+                  <Text style={{ color: '#9ca3af', fontSize: 11, width: 32 }}>{ev.minute}'</Text>
+                  <Text style={{ fontSize: 16 }}>
+                    {ev.type === 'goal' ? '⚽' : ev.type === 'penalty' ? '⚽🎯' : ev.type === 'owngoal' ? '⚽😬' : ev.type === 'yellow' ? '🟨' : ev.type === 'red' ? '🟥' : '↕️'}
+                  </Text>
+                  <Text style={{ color: '#e5e7eb', fontSize: 12, flex: 1 }}>{ev.player}</Text>
+                  <Text style={{ color: ev.team === 'home' ? '#3b82f6' : '#ef4444', fontSize: 10 }}>
+                    {ev.team === 'home' ? selectedMatch!.homeTeam : selectedMatch!.awayTeam}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Section>
+        )}
 
         {/* EQUIPOS */}
         <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" delay={80}>
@@ -1293,11 +1361,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
               <Text style={styles.closeBtn}>✕</Text>
             </Pressable>
             <View style={styles.modalTitleWrap}>
-              <Text style={styles.modalFlag}>{getFlag(selectedMatch?.homeTeam || '')}</Text>
-              <Text style={styles.modalTitle} numberOfLines={1}>
-                {selectedMatch?.homeTeam} vs {selectedMatch?.awayTeam}
+              <Text style={styles.modalTeamA} numberOfLines={1}>
+                {getFlag(selectedMatch?.homeTeam || '')} {selectedMatch?.homeTeam}
               </Text>
-              <Text style={styles.modalFlag}>{getFlag(selectedMatch?.awayTeam || '')}</Text>
+              <Text style={styles.modalVs}>vs</Text>
+              <Text style={styles.modalTeamB} numberOfLines={1}>
+                {selectedMatch?.awayTeam} {getFlag(selectedMatch?.awayTeam || '')}
+              </Text>
             </View>
             <View style={{ width: 30 }} />
           </View>
@@ -1437,7 +1507,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1,
     borderBottomColor: colors.border.subtle,
   },
-  modalTitleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  modalTitleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  modalTeamA: { flex: 1, textAlign: 'right', fontSize: 12, fontWeight: '800', color: colors.text.primary },
+  modalVs: { fontSize: 10, color: colors.text.muted, fontWeight: '600', paddingHorizontal: 4 },
+  modalTeamB: { flex: 1, textAlign: 'left', fontSize: 12, fontWeight: '800', color: colors.text.primary },
   modalTitle: { flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 'bold', color: colors.text.primary },
   modalFlag: { fontSize: 18 },
   closeBtn: { fontSize: 22, color: colors.text.primary, fontWeight: 'bold' },

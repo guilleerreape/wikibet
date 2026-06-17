@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, Modal, TextInput, ActivityIndicator,
-  Alert, Platform,
+  Alert, Platform, Animated,
 } from 'react-native';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -248,6 +248,14 @@ export default function ApuestasScreen() {
   const [resultBet, setResultBet]   = useState<Bet | null>(null);
   const [filter, setFilter]         = useState<'all' | 'pending' | 'won' | 'lost'>('all');
   const [upcomingMatches, setUpcomingMatches] = useState<SmartMatch[]>([]);
+  const headerGlow = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(Animated.sequence([
+      Animated.timing(headerGlow, { toValue: 1, duration: 2500, useNativeDriver: false }),
+      Animated.timing(headerGlow, { toValue: 0, duration: 2500, useNativeDriver: false }),
+    ])).start();
+  }, []);
 
   // Cargar partidos próximos para el selector
   useEffect(() => {
@@ -327,6 +335,51 @@ export default function ApuestasScreen() {
   return (
     <SafeAreaView style={st.root}>
       <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false}>
+
+        {/* ─── Animated header banner ─── */}
+        <View style={{
+          paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10,
+          borderBottomWidth: 1, borderBottomColor: '#1f2937',
+          backgroundColor: '#0a1628',
+          marginHorizontal: -14, marginTop: -14, marginBottom: 14,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View>
+              <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', letterSpacing: 0.5 }}>
+                📒 MIS APUESTAS
+              </Text>
+              <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff', marginTop: 2 }}>
+                {stats.totalBets > 0 ? `${stats.totalBets} apuesta${stats.totalBets !== 1 ? 's' : ''}` : 'Sin apuestas aún'}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 11, color: '#6b7280' }}>Balance total</Text>
+              <Text style={{
+                fontSize: 22, fontWeight: '900',
+                color: stats.totalProfit >= 0 ? '#22c55e' : '#ef4444',
+              }}>
+                {stats.totalProfit >= 0 ? '+' : ''}{stats.totalProfit.toFixed(2)}€
+              </Text>
+            </View>
+          </View>
+          {stats.totalBets > 0 && (
+            <View style={{ marginTop: 10 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Text style={{ fontSize: 9, color: '#6b7280' }}>Tasa de éxito</Text>
+                <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700' }}>
+                  {stats.totalBets > 0 ? Math.round((stats.won / stats.totalBets) * 100) : 0}%
+                </Text>
+              </View>
+              <View style={{ height: 4, backgroundColor: '#1f2937', borderRadius: 2, overflow: 'hidden' }}>
+                <View style={{
+                  height: '100%',
+                  width: `${stats.totalBets > 0 ? (stats.won / stats.totalBets) * 100 : 0}%`,
+                  backgroundColor: '#22c55e', borderRadius: 2,
+                }} />
+              </View>
+            </View>
+          )}
+        </View>
 
         {/* ─── Stats dashboard ─── */}
         <View style={st.dashboardCard}>

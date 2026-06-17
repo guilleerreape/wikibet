@@ -26,7 +26,7 @@ interface AINewsAnalysis {
   conclusion: string;
 }
 
-async function analyzeNewsWithAI(news: RealNews[]): Promise<AINewsAnalysis | null> {
+async function analyzeNewsWithAI(news: RealNews[], todayMatches?: string): Promise<AINewsAnalysis | null> {
   if (!CLAUDE_API_KEY) return null;
 
   const topNews = news.filter(n => n.impact === 'HIGH').slice(0, 4);
@@ -84,6 +84,7 @@ Responde SOLO con JSON:
 
 NOTICIAS ESPECÍFICAS DE HOY (${today}):
 ${newsText}
+${todayMatches ? `\n\nFIXTURES DE HOY Y PRÓXIMOS DÍAS (usa estos datos para hacer análisis CONCRETOS):\n${todayMatches}` : ''}
 
 IMPORTANTE: Responde SOLO con JSON. Sé CONCRETO con nombres, cuotas y partidos reales. NADA GENÉRICO.`,
         }],
@@ -162,7 +163,33 @@ export default function NoticiasScreen() {
     setAiModalVisible(true);
     if (aiAnalysis) return;
     setAiLoading(true);
-    const result = await analyzeNewsWithAI(allNews);
+
+    // Get today's matches for context
+    let todayMatchesStr = '';
+    try {
+      const { espnMatchService } = await import('@/services/espnMatchService');
+      const allMatches = await espnMatchService.getMatches('FIFA.WORLD');
+      const now = new Date();
+      const soon = allMatches
+        .filter(m => {
+          const d = new Date(m.date);
+          const diff = (d.getTime() - now.getTime()) / 3600000;
+          return diff > -24 && diff < 72 && m.status !== 'finished';
+        })
+        .slice(0, 8);
+      const recent = allMatches
+        .filter(m => m.status === 'finished')
+        .slice(-6);
+      const all = [...recent, ...soon];
+      todayMatchesStr = all.map(m => {
+        const d = new Date(m.date);
+        const dateStr = d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const score = m.homeScore !== null ? `${m.homeScore}-${m.awayScore}` : 'Por jugar';
+        return `• ${m.homeTeam} vs ${m.awayTeam} [${m.league}] — ${dateStr} — ${score}`;
+      }).join('\n');
+    } catch {}
+
+    const result = await analyzeNewsWithAI(allNews, todayMatchesStr);
     setAiAnalysis(result || getLocalAIAnalysis(allNews));
     setAiLoading(false);
   };
@@ -180,11 +207,39 @@ export default function NoticiasScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.subHeader}>
-        <Text style={styles.subtitle}>
-          Impacto en apuestas · Lesiones · Análisis
-          {lastUpdated ? `  ·  🔄 ${lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
-        </Text>
+      <View style={{
+        paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
+        borderBottomWidth: 1, borderBottomColor: '#1f2937',
+        backgroundColor: '#0a1628',
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View>
+            <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', letterSpacing: 0.5 }}>
+              📰 NOTICIAS
+            </Text>
+            <Text style={{ fontSize: 13, color: '#d1d5db', marginTop: 2 }}>
+              Impacto en apuestas · Lesiones · Análisis
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            {lastUpdated && (
+              <Text style={{ fontSize: 9, color: '#6b7280' }}>
+                🔄 {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+              <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700' }}>EN VIVO</Text>
+            </View>
+            {allNews.filter(n => n.impact === 'HIGH').length > 0 && (
+              <View style={{ backgroundColor: '#7f1d1d', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+                <Text style={{ fontSize: 9, color: '#fca5a5', fontWeight: '700' }}>
+                  🔴 {allNews.filter(n => n.impact === 'HIGH').length} URGENTES
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
       </View>
 
       <View style={styles.filterRow}>
