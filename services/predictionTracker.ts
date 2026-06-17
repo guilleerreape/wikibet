@@ -1,12 +1,21 @@
 /**
  * predictionTracker.ts — AI accuracy tracking (global, shared via Supabase)
- * Tracks the same 7 markets shown in PostMatchBanner:
- *   1X2 · Over 0.5 · Over 1.5 · Over 2.5 · Under 2.5 · BTTS · Over 3.5
+ * Dynamic system: AI emits as many predictions as it's confident about.
+ * Each prediction stored in predictions_json (JSONB). All aggregate into global %.
  */
 
 import { supabase } from './supabase';
 
 export type Outcome = 'local' | 'empate' | 'visitante';
+
+// ─── Dynamic prediction item ──────────────────────────────────────────────────
+export interface PredItem {
+  market: string;   // 'over0_5' | 'over1_5' | 'over2_5' | 'under2_5' | 'over3_5' | 'under3_5' | 'btts' | 'btts_no' | '1x2'
+  label:  string;   // Human-readable
+  emoji:  string;   // Display emoji
+  value?: string;   // For 1x2: 'local'|'empate'|'visitante'
+  hit?:   boolean;  // Set after verification
+}
 
 export interface MarketStat {
   label:     string;
@@ -17,14 +26,12 @@ export interface MarketStat {
 }
 
 export interface AccuracyStats {
-  // Composite (all 7 markets)
   totalPredictions:   number;
   correctPredictions: number;
   overallPct:         number;
   totalMatches:       number;
 
-  // Per market (sorted for display)
-  markets: MarketStat[];
+  markets: MarketStat[];   // sorted by pct desc
 
   // 1X2 sub-breakdown
   victorias: { predicted: number; correct: number; pct: number };
@@ -46,6 +53,97 @@ export function outcomeFromScore(homeScore: number, awayScore: number): Outcome 
   return 'visitante';
 }
 
+// ─── Build confident predictions from AI analysis ─────────────────────────────
+// Takes predicciones object from advancedAIAnalysis result.
+// Adds a prediction ONLY when the AI is confident enough.
+export function buildConfidentPredictions(predicciones: any): PredItem[] {
+  const preds: PredItem[] = [];
+  const probs = predicciones?.probabilidades ?? {};
+  const mkts  = predicciones?.mercados ?? {};
+  const goles = predicciones?.goles ?? {};
+
+  const pL = probs.victoriaLocal ?? 0;
+  const pD = probs.empate ?? 0;
+  const pA = probs.victoriaVisitante ?? 0;
+
+  // ── 1X2: siempre incluir ──────────────────────────────────────────────────
+  const outcome: Outcome =
+    pL >= pD && pL >= pA ? 'local' :
+    pD >= pL && pD >= pA ? 'empate' : 'visitante';
+  const outcomeLabel =
+    outcome === 'local' ? 'Local gana (1X2)' :
+    outcome === 'empate' ? 'Empate (1X2)' : 'Visitante gana (1X2)';
+  preds.push({ market: '1x2', label: outcomeLabel, emoji: '🏆', value: outcome });
+
+  // ── Over 0.5: incluir si >= 70% ────────────────────────────────────────────
+  const over05 = goles.over0_5?.total ?? 90;
+  if (over05 >= 70) {
+    preds.push({ market: 'over0_5', label: 'Al menos 1 gol (Over 0.5)', emoji: '⚽' });
+  }
+
+  // ── Under 3.5: fácil, incluir si >= 62% ───────────────────────────────────
+  const over35raw = goles.over3_5?.total ?? mkts.over3_5 ?? 0;
+  const under35 = 100 - over35raw;
+  if (under35 >= 62) {
+    preds.push({ market: 'under3_5', label: 'Menos de 3.5 goles', emoji: '🛡️' });
+  }
+
+  // ── Over 1.5 o Under 1.5: incluir el lado confiado si >= 62% ──────────────
+  const over15 = goles.over1_5?.total ?? mkts.over1_5 ?? 0;
+  if (over15 >= 62) {
+    preds.push({ market: 'over1_5', label: 'Más de 1.5 goles', emoji: '🔥' });
+  } else if ((100 - over15) >= 72) {
+    preds.push({ market: 'under1_5', label: 'Menos de 1.5 goles', emoji: '🔒' });
+  }
+
+  // ── Over 2.5 o Under 2.5: incluir el lado confiado si >= 58% ──────────────
+  const over25 = goles.over2_5?.total ?? mkts.over2_5 ?? 0;
+  if (over25 >= 58) {
+    preds.push({ market: 'over2_5', label: 'Más de 2.5 goles', emoji: '💥' });
+  } else if ((100 - over25) >= 58) {
+    preds.push({ market: 'under2_5', label: 'Menos de 2.5 goles', emoji: '🔒' });
+  }
+
+  // ── BTTS Sí o No: incluir el lado confiado si >= 58% ──────────────────────
+  const btts   = mkts.btts_si ?? 0;
+  const bttsNo = mkts.btts_no ?? (100 - btts);
+  if (btts >= 58) {
+    preds.push({ market: 'btts', label: 'Ambos equipos marcan', emoji: '🎯' });
+  } else if (bttsNo >= 58) {
+    preds.push({ market: 'btts_no', label: 'No marcan los dos (BTTS No)', emoji: '🚫' });
+  }
+
+  // ── Over 3.5: solo si >= 55% ───────────────────────────────────────────────
+  if (over35raw >= 55) {
+    preds.push({ market: 'over3_5', label: 'Más de 3.5 goles', emoji: '🚀' });
+  }
+
+  return preds;
+}
+
+// ─── Verify predictions against actual score ──────────────────────────────────
+export function verifyPredictions(preds: PredItem[], hs: number, as_: number): PredItem[] {
+  const total     = hs + as_;
+  const actual1x2 = outcomeFromScore(hs, as_);
+  return preds.map(p => {
+    let hit: boolean;
+    switch (p.market) {
+      case '1x2':     hit = p.value === actual1x2; break;
+      case 'over0_5': hit = total > 0; break;
+      case 'over1_5': hit = total > 1; break;
+      case 'over2_5': hit = total > 2; break;
+      case 'under2_5':hit = total < 3; break;
+      case 'over3_5': hit = total > 3; break;
+      case 'under3_5':hit = total < 4; break;
+      case 'under1_5':hit = total < 2; break;
+      case 'btts':    hit = hs > 0 && as_ > 0; break;
+      case 'btts_no': hit = !(hs > 0 && as_ > 0); break;
+      default:        hit = false;
+    }
+    return { ...p, hit };
+  });
+}
+
 // ─── National team ratings for WC 2026 seeding ───────────────────────────────
 const TEAM_RATINGS: Record<string, { wr: number; xg: number }> = {
   'Argentina': {wr:78,xg:2.8},'Brasil': {wr:72,xg:2.5},'Francia': {wr:74,xg:2.4},
@@ -65,10 +163,10 @@ const TEAM_RATINGS: Record<string, { wr: number; xg: number }> = {
   'Curazao': {wr:35,xg:1.0},
 };
 
-function predictMatch(homeTeam: string, awayTeam: string) {
+function predictMatchSeed(homeTeam: string, awayTeam: string) {
   const h   = TEAM_RATINGS[homeTeam]  ?? { wr:50, xg:1.5 };
   const a   = TEAM_RATINGS[awayTeam]  ?? { wr:50, xg:1.5 };
-  const D   = 0.72; // WC group stage discount
+  const D   = 0.72;
   const hxg = h.xg * D;
   const axg = a.xg * D;
   const exp = hxg + axg;
@@ -80,28 +178,34 @@ function predictMatch(homeTeam: string, awayTeam: string) {
   const pA   = Math.min(0.60, Math.max(0.15, aStr/tot));
   const pD   = Math.max(0.10, 1-pH-pA);
 
-  return {
-    outcome:   outcomeFromProbs(pH*100, pD*100, pA*100),
-    over05:    true,             // AI always predicts at least 1 goal
-    over15:    exp > 1.7,
-    over25:    exp > 2.5,
-    under25:   exp <= 2.5,       // complement of over25
-    btts:      hxg > 0.62 && axg > 0.62,
-    over35:    exp > 3.2,
-  };
-}
+  // Build a fake predicciones object so buildConfidentPredictions works
+  const over05  = 92;
+  const over15  = Math.round(Math.min(95, Math.max(20, (exp / 1.5) * 60)));
+  const over25  = Math.round(Math.min(90, Math.max(15, (exp / 2.5) * 55)));
+  const over35  = Math.round(Math.min(70, Math.max(5,  (exp / 3.5) * 45)));
+  const btts    = Math.round(Math.min(85, Math.max(15, hxg * axg * 80)));
+  const bttsNo  = 100 - btts;
 
-// ─── Compute all 7 market correctness from actual score ──────────────────────
-function computeMarketHits(hs: number, as_: number) {
-  const total = hs + as_;
   return {
-    actual_over05:   total > 0,
-    actual_over15:   total > 1,
-    actual_over25:   total > 2,
-    actual_under25:  total < 3,
-    actual_btts:     hs > 0 && as_ > 0,
-    actual_over35:   total > 3,
-    actual_total:    total,
+    outcome: outcomeFromProbs(pH*100, pD*100, pA*100),
+    predicciones: {
+      probabilidades: {
+        victoriaLocal:       Math.round(pH * 100),
+        empate:              Math.round(pD * 100),
+        victoriaVisitante:   Math.round(pA * 100),
+      },
+      goles: {
+        over0_5: { local: 80, visitante: 75, total: over05 },
+        over1_5: { local: 55, visitante: 50, total: over15 },
+        over2_5: { local: 40, visitante: 35, total: over25 },
+        over3_5: { local: 25, visitante: 20, total: over35 },
+      },
+      mercados: {
+        over1_5: over15, over2_5: over25, over3_5: over35,
+        under2_5: 100 - over25,
+        btts_si: btts, btts_no: bttsNo,
+      },
+    },
   };
 }
 
@@ -129,82 +233,89 @@ const WC_HISTORICAL = [
   {id:'wc_j2',home:'Austria',         away:'Jordania',     hs:2,as_:1,date:'2026-06-17T04:00:00Z'},
 ];
 
-// ─── Seed historical WC data (idempotent) ─────────────────────────────────────
+// ─── Seed historical WC data (always upsert to populate predictions_json) ─────
 export async function seedHistoricalData(): Promise<number> {
   try {
     const rows = WC_HISTORICAL.map(m => {
-      const p  = predictMatch(m.home, m.away);
-      const ah = computeMarketHits(m.hs, m.as_);
+      const { outcome, predicciones } = predictMatchSeed(m.home, m.away);
+      const preds = buildConfidentPredictions(predicciones);
+      const verified = verifyPredictions(preds, m.hs, m.as_);
       const actual = outcomeFromScore(m.hs, m.as_);
+      const total  = m.hs + m.as_;
       return {
-        match_id: m.id, competition: 'FIFA.WORLD',
-        home_team: m.home, away_team: m.away, match_date: m.date,
-        predicted_outcome: p.outcome, actual_outcome: actual,
-        home_score: m.hs, away_score: m.as_,
-        is_correct:      p.outcome === actual,
-        pred_over05:     p.over05,   correct_over05:  p.over05  === ah.actual_over05,
-        pred_over15:     p.over15,   correct_over15:  p.over15  === ah.actual_over15,
-        pred_over25:     p.over25,   correct_over25:  p.over25  === ah.actual_over25,
-        pred_under25:    p.under25,  correct_under25: p.under25 === ah.actual_under25,
-        pred_btts:       p.btts,     correct_btts:    p.btts    === ah.actual_btts,
-        pred_over35:     p.over35,   correct_over35:  p.over35  === ah.actual_over35,
-        actual_total_goals: ah.actual_total,
+        match_id:          m.id,
+        competition:       'FIFA.WORLD',
+        home_team:         m.home,
+        away_team:         m.away,
+        match_date:        m.date,
+        predicted_outcome: outcome,
+        actual_outcome:    actual,
+        home_score:        m.hs,
+        away_score:        m.as_,
+        is_correct:        outcome === actual,
+        actual_total_goals: total,
+        predictions_json:  verified,
       };
     });
+    // No ignoreDuplicates → updates existing rows with predictions_json
     const { error } = await supabase
       .from('match_predictions')
-      .upsert(rows, { onConflict: 'match_id', ignoreDuplicates: true });
+      .upsert(rows, { onConflict: 'match_id' });
     return error ? 0 : rows.length;
   } catch { return 0; }
 }
 
 // ─── Save prediction when AI analysis runs ────────────────────────────────────
 export async function savePrediction(
-  matchId: string, competition: string,
-  homeTeam: string, awayTeam: string, matchDate: string,
+  matchId:          string,
+  competition:      string,
+  homeTeam:         string,
+  awayTeam:         string,
+  matchDate:        string,
   predictedOutcome: Outcome,
-  markets?: {
-    pred_over05?:  boolean; pred_over15?:  boolean;
-    pred_over25?:  boolean; pred_under25?: boolean;
-    pred_btts?:    boolean; pred_over35?:  boolean;
-  }
+  predictions:      PredItem[] = [],
 ): Promise<void> {
   try {
     await supabase.from('match_predictions').upsert(
-      { match_id: matchId, competition, home_team: homeTeam, away_team: awayTeam,
-        match_date: matchDate, predicted_outcome: predictedOutcome, ...(markets ?? {}) },
+      {
+        match_id:          matchId,
+        competition,
+        home_team:         homeTeam,
+        away_team:         awayTeam,
+        match_date:        matchDate,
+        predicted_outcome: predictedOutcome,
+        predictions_json:  predictions,
+      },
       { onConflict: 'match_id', ignoreDuplicates: true }
     );
   } catch { /* silent */ }
 }
 
-// ─── Record actual result + compute all market correctness ────────────────────
+// ─── Record actual result + verify predictions_json ───────────────────────────
 export async function updateActualResult(
   matchId: string, homeScore: number, awayScore: number
 ): Promise<void> {
   try {
     const { data } = await supabase
       .from('match_predictions')
-      .select('predicted_outcome,actual_outcome,pred_over05,pred_over15,pred_over25,pred_under25,pred_btts,pred_over35')
+      .select('predicted_outcome,actual_outcome,predictions_json')
       .eq('match_id', matchId).maybeSingle();
     if (!data || data.actual_outcome) return;
 
-    const actual = outcomeFromScore(homeScore, awayScore);
-    const ah     = computeMarketHits(homeScore, awayScore);
-
-    const maybeCorrect = (pred: boolean | null | undefined, hit: boolean) =>
-      pred !== null && pred !== undefined ? pred === hit : undefined;
+    const actual   = outcomeFromScore(homeScore, awayScore);
+    const total    = homeScore + awayScore;
+    const rawPreds: PredItem[] = data.predictions_json ?? [];
+    const verified = rawPreds.length > 0
+      ? verifyPredictions(rawPreds, homeScore, awayScore)
+      : [];
 
     await supabase.from('match_predictions').update({
-      actual_outcome: actual, home_score: homeScore, away_score: awayScore,
-      is_correct: data.predicted_outcome === actual,
-      actual_total_goals: ah.actual_total,
-      ...(maybeCorrect(data.pred_over05,  ah.actual_over05)  !== undefined ? { correct_over05:  data.pred_over05  === ah.actual_over05  } : {}),
-      ...(maybeCorrect(data.pred_over15,  ah.actual_over15)  !== undefined ? { correct_over15:  data.pred_over15  === ah.actual_over15  } : {}),
-      ...(maybeCorrect(data.pred_over25,  ah.actual_over25)  !== undefined ? { correct_over25:  data.pred_over25  === ah.actual_over25  } : {}),
-      ...(maybeCorrect(data.pred_under25, ah.actual_under25) !== undefined ? { correct_under25: data.pred_under25 === ah.actual_under25 } : {}),
-      ...(maybeCorrect(data.pred_btts,    ah.actual_btts)    !== undefined ? { correct_btts:    data.pred_btts    === ah.actual_btts    } : {}),
-      ...(maybeCorrect(data.pred_over35,  ah.actual_over35)  !== undefined ? { correct_over35:  data.pred_over35  === ah.actual_over35  } : {}),
+      actual_outcome:     actual,
+      home_score:         homeScore,
+      away_score:         awayScore,
+      is_correct:         data.predicted_outcome === actual,
+      actual_total_goals: total,
+      predictions_json:   verified,
     }).eq('match_id', matchId);
   } catch { /* silent */ }
 }
@@ -214,7 +325,7 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
   try {
     const { data, error } = await supabase
       .from('match_predictions')
-      .select('predicted_outcome,actual_outcome,is_correct,pred_over05,pred_over15,pred_over25,pred_under25,pred_btts,pred_over35,correct_over05,correct_over15,correct_over25,correct_under25,correct_btts,correct_over35')
+      .select('predicted_outcome,actual_outcome,is_correct,predictions_json,pred_over05,pred_over15,pred_over25,pred_under25,pred_btts,pred_over35,correct_over05,correct_over15,correct_over25,correct_under25,correct_btts,correct_over35')
       .not('actual_outcome', 'is', null);
 
     if (error || !data || data.length === 0) return null;
@@ -222,48 +333,88 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
     const totalMatches = data.length;
     let totalP = 0, totalC = 0;
 
-    // 1X2
-    const n1x2  = data.filter(d => d.predicted_outcome !== null).length;
-    const c1x2  = data.filter(d => d.is_correct === true).length;
-    totalP += n1x2; totalC += c1x2;
-
-    // Market stat helper
-    const mkt = (label: string, emoji: string,
-      predKey: keyof typeof data[0], corrKey: keyof typeof data[0]): MarketStat => {
-      const rows = data.filter(d => d[predKey] !== null && d[predKey] !== undefined && d[corrKey] !== null && d[corrKey] !== undefined);
-      const hits = rows.filter(d => d[corrKey] === true).length;
-      totalP += rows.length; totalC += hits;
-      return { label, emoji, predicted: rows.length, correct: hits,
-               pct: rows.length > 0 ? Math.round((hits/rows.length)*100) : 0 };
+    // Per-market accumulators
+    const mktMap: Record<string, { label: string; emoji: string; predicted: number; correct: number }> = {};
+    const addMkt = (market: string, label: string, emoji: string, hit: boolean) => {
+      if (!mktMap[market]) mktMap[market] = { label, emoji, predicted: 0, correct: 0 };
+      mktMap[market].predicted++;
+      if (hit) mktMap[market].correct++;
+      totalP++;
+      if (hit) totalC++;
     };
 
-    const rawMarkets = [
-      { label: 'Resultado 1X2',  emoji: '🏆', predicted: n1x2,  correct: c1x2,
-        pct: n1x2 > 0 ? Math.round((c1x2/n1x2)*100) : 0 },
-      mkt('Over 0.5 goles',  '⚽', 'pred_over05',  'correct_over05'),
-      mkt('Over 1.5 goles',  '🔥', 'pred_over15',  'correct_over15'),
-      mkt('Over 2.5 goles',  '💥', 'pred_over25',  'correct_over25'),
-      mkt('Under 2.5 goles', '🛡️', 'pred_under25', 'correct_under25'),
-      mkt('Ambos marcan',    '🎯', 'pred_btts',    'correct_btts'),
-      mkt('Over 3.5 goles',  '🚀', 'pred_over35',  'correct_over35'),
-    ];
-    // Sort by accuracy desc
-    const markets = [...rawMarkets].sort((a, b) => b.pct - a.pct);
+    // 1X2 sub-breakdown
+    const sub1x2 = { local: { p:0,c:0 }, empate: { p:0,c:0 }, visitante: { p:0,c:0 } };
 
-    const subFor = (outcome: Outcome) => {
-      const rows = data.filter(d => d.predicted_outcome === outcome);
-      const hits = rows.filter(d => d.is_correct === true).length;
-      return { predicted: rows.length, correct: hits,
-               pct: rows.length > 0 ? Math.round((hits/rows.length)*100) : 0 };
-    };
+    for (const row of data) {
+      const preds: PredItem[] = row.predictions_json ?? [];
+
+      if (preds.length > 0) {
+        // ── New system: read from predictions_json ──
+        for (const p of preds) {
+          if (p.hit === undefined || p.hit === null) continue;
+          const label =
+            p.market === '1x2' ? 'Resultado 1X2' :
+            p.label;
+          addMkt(p.market, label, p.emoji, p.hit === true);
+
+          // 1X2 sub-breakdown
+          if (p.market === '1x2' && p.value) {
+            const sub = sub1x2[p.value as keyof typeof sub1x2];
+            if (sub) { sub.p++; if (p.hit === true) sub.c++; }
+          }
+        }
+      } else {
+        // ── Fallback: read from old boolean columns ──
+        const outcome1x2Hit = row.is_correct === true;
+        if (row.predicted_outcome) {
+          addMkt('1x2', 'Resultado 1X2', '🏆', outcome1x2Hit);
+          const sub = sub1x2[row.predicted_outcome as keyof typeof sub1x2];
+          if (sub) { sub.p++; if (outcome1x2Hit) sub.c++; }
+        }
+        const legacy = [
+          { key: 'pred_over05',  corr: 'correct_over05',  label: 'Over 0.5 goles',  emoji: '⚽', market: 'over0_5'  },
+          { key: 'pred_over15',  corr: 'correct_over15',  label: 'Over 1.5 goles',  emoji: '🔥', market: 'over1_5'  },
+          { key: 'pred_over25',  corr: 'correct_over25',  label: 'Over 2.5 goles',  emoji: '💥', market: 'over2_5'  },
+          { key: 'pred_under25', corr: 'correct_under25', label: 'Under 2.5 goles', emoji: '🔒', market: 'under2_5' },
+          { key: 'pred_btts',    corr: 'correct_btts',    label: 'Ambos marcan',    emoji: '🎯', market: 'btts'     },
+          { key: 'pred_over35',  corr: 'correct_over35',  label: 'Over 3.5 goles',  emoji: '🚀', market: 'over3_5'  },
+        ] as const;
+        for (const l of legacy) {
+          const pred = (row as any)[l.key];
+          const corr = (row as any)[l.corr];
+          if (pred !== null && pred !== undefined && corr !== null && corr !== undefined) {
+            addMkt(l.market, l.label, l.emoji, corr === true);
+          }
+        }
+      }
+    }
+
+    // Build sorted MarketStat[]
+    const markets: MarketStat[] = Object.values(mktMap)
+      .map(m => ({
+        label:     m.label,
+        emoji:     m.emoji,
+        predicted: m.predicted,
+        correct:   m.correct,
+        pct:       m.predicted > 0 ? Math.round((m.correct / m.predicted) * 100) : 0,
+      }))
+      .sort((a, b) => b.pct - a.pct);
+
+    const toSub = (s: { p: number; c: number }) => ({
+      predicted: s.p, correct: s.c,
+      pct: s.p > 0 ? Math.round((s.c / s.p) * 100) : 0,
+    });
 
     return {
-      totalPredictions: totalP, correctPredictions: totalC,
-      overallPct: totalP > 0 ? Math.round((totalC/totalP)*100) : 0,
-      totalMatches, markets,
-      victorias: subFor('local'),
-      empates:   subFor('empate'),
-      visitante: subFor('visitante'),
+      totalPredictions:   totalP,
+      correctPredictions: totalC,
+      overallPct:         totalP > 0 ? Math.round((totalC / totalP) * 100) : 0,
+      totalMatches,
+      markets,
+      victorias: toSub(sub1x2.local),
+      empates:   toSub(sub1x2.empate),
+      visitante: toSub(sub1x2.visitante),
       lastUpdated: new Date(),
     };
   } catch { return null; }
@@ -274,20 +425,39 @@ export async function getQuickStats(): Promise<{ pct: number; total: number } | 
   try {
     const { data } = await supabase
       .from('match_predictions')
-      .select('is_correct,correct_over05,correct_over15,correct_over25,correct_under25,correct_btts,correct_over35,pred_over05,pred_over15,pred_over25,pred_under25,pred_btts,pred_over35')
+      .select('is_correct,predictions_json,pred_over05,pred_over15,pred_over25,pred_under25,pred_btts,pred_over35,correct_over05,correct_over15,correct_over25,correct_under25,correct_btts,correct_over35')
       .not('actual_outcome', 'is', null);
 
     if (!data || data.length === 0) return null;
+
     let total = 0, correct = 0;
     for (const r of data) {
-      total++;    if (r.is_correct === true) correct++;
-      if (r.pred_over05  !== null && r.pred_over05  !== undefined && r.correct_over05  !== null) { total++; if (r.correct_over05  === true) correct++; }
-      if (r.pred_over15  !== null && r.pred_over15  !== undefined && r.correct_over15  !== null) { total++; if (r.correct_over15  === true) correct++; }
-      if (r.pred_over25  !== null && r.pred_over25  !== undefined && r.correct_over25  !== null) { total++; if (r.correct_over25  === true) correct++; }
-      if (r.pred_under25 !== null && r.pred_under25 !== undefined && r.correct_under25 !== null) { total++; if (r.correct_under25 === true) correct++; }
-      if (r.pred_btts    !== null && r.pred_btts    !== undefined && r.correct_btts    !== null) { total++; if (r.correct_btts    === true) correct++; }
-      if (r.pred_over35  !== null && r.pred_over35  !== undefined && r.correct_over35  !== null) { total++; if (r.correct_over35  === true) correct++; }
+      const preds: PredItem[] = (r as any).predictions_json ?? [];
+      if (preds.length > 0) {
+        for (const p of preds) {
+          if (p.hit === undefined || p.hit === null) continue;
+          total++;
+          if (p.hit === true) correct++;
+        }
+      } else {
+        // Fallback to old columns
+        total++;   if (r.is_correct === true) correct++;
+        const legacyPairs = [
+          [(r as any).pred_over05,  (r as any).correct_over05],
+          [(r as any).pred_over15,  (r as any).correct_over15],
+          [(r as any).pred_over25,  (r as any).correct_over25],
+          [(r as any).pred_under25, (r as any).correct_under25],
+          [(r as any).pred_btts,    (r as any).correct_btts],
+          [(r as any).pred_over35,  (r as any).correct_over35],
+        ];
+        for (const [pred, corr] of legacyPairs) {
+          if (pred !== null && pred !== undefined && corr !== null && corr !== undefined) {
+            total++; if (corr === true) correct++;
+          }
+        }
+      }
     }
-    return { pct: Math.round((correct/total)*100), total };
+    if (total === 0) return null;
+    return { pct: Math.round((correct / total) * 100), total };
   } catch { return null; }
 }

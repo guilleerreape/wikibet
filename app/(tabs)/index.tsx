@@ -18,7 +18,7 @@ import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, Standing
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
-import { savePrediction, updateActualResult, outcomeFromProbs } from '@/services/predictionTracker';
+import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -96,27 +96,11 @@ function getTodayStart(): Date {
 function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
   const hg = match.homeScore ?? 0;
   const ag = match.awayScore ?? 0;
-  const total = hg + ag;
-  const pred = analysis.predicciones;
 
-  const homeWinProb = pred.probabilidades.victoriaLocal;
-  const drawProb = pred.probabilidades.empate;
-  const awayWinProb = pred.probabilidades.victoriaVisitante;
-  const predictedOutcome = homeWinProb >= drawProb && homeWinProb >= awayWinProb ? 'local'
-    : drawProb >= homeWinProb && drawProb >= awayWinProb ? 'empate' : 'visitante';
-  const actualOutcome = hg > ag ? 'local' : hg === ag ? 'empate' : 'visitante';
-
-  const checks = [
-    { label: `Victoria 1X2 (${hg}-${ag})`, hit: predictedOutcome === actualOutcome },
-    { label: 'Over 0.5 goles', hit: total > 0 },
-    { label: 'Over 1.5 goles', hit: total > 1 },
-    { label: 'Over 2.5 goles', hit: total > 2 },
-    { label: 'Under 2.5 goles', hit: total < 3 },
-    { label: 'Ambos marcan (BTTS)', hit: hg > 0 && ag > 0 },
-    { label: 'Over 3.5 goles', hit: total > 3 },
-  ];
-
-  const correct = checks.filter(c => c.hit).length;
+  // Dynamic: the AI emits however many predictions it's confident about
+  const preds   = buildConfidentPredictions(analysis.predicciones);
+  const verified = verifyPredictions(preds, hg, ag);
+  const correct  = verified.filter(p => p.hit === true).length;
 
   return (
     <View style={styles.postMatchBanner}>
@@ -126,17 +110,17 @@ function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysi
           <Text style={styles.postMatchScore}>{hg} - {ag}</Text>
         </View>
         <Text style={styles.postMatchAccuracy}>
-          {correct}/{checks.length} pronósticos ✓
+          {correct}/{verified.length} pronósticos ✓
         </Text>
       </View>
       <View style={styles.postMatchChecks}>
-        {checks.map(c => (
-          <View key={c.label} style={styles.postMatchCheck}>
-            <Text style={[styles.postMatchCheckIcon, { color: c.hit ? '#22c55e' : '#ef4444' }]}>
-              {c.hit ? '✅' : '❌'}
+        {verified.map(p => (
+          <View key={p.market} style={styles.postMatchCheck}>
+            <Text style={[styles.postMatchCheckIcon, { color: p.hit ? '#22c55e' : '#ef4444' }]}>
+              {p.hit ? '✅' : '❌'}
             </Text>
-            <Text style={[styles.postMatchCheckLabel, { color: c.hit ? colors.text.primary : colors.text.muted }]}>
-              {c.label}
+            <Text style={[styles.postMatchCheckLabel, { color: p.hit ? colors.text.primary : colors.text.muted }]}>
+              {p.emoji} {p.label}
             </Text>
           </View>
         ))}
@@ -378,28 +362,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
       // ── Track prediction in Supabase (shared across all users/devices) ──
       const probs = result.predicciones.probabilidades;
-      const mkts  = result.predicciones.mercados ?? {};
       const predicted = outcomeFromProbs(
         probs.victoriaLocal, probs.empate, probs.victoriaVisitante
       );
-      // Save all 7 markets that appear in PostMatchBanner (first write wins)
-      const g = result.predicciones.goles ?? {};
-      savePrediction(
-        match.id,
-        match.league,
-        match.homeTeam,
-        match.awayTeam,
-        match.date,
-        predicted,
-        {
-          pred_over05:  (g.over0_5?.total ?? 95) >= 50,
-          pred_over15:  (mkts.over1_5 ?? 0) >= 50,
-          pred_over25:  (mkts.over2_5 ?? 0) >= 50,
-          pred_under25: (mkts.over2_5 ?? 0) < 50,      // complement
-          pred_btts:    (mkts.btts_si ?? 0) >= 50,
-          pred_over35:  (mkts.over3_5 ?? 0) >= 50,
-        }
-      );
+      // Dynamic: AI emits as many confident predictions as it wants
+      const preds = buildConfidentPredictions(result.predicciones);
+      savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
       // If match already finished, also record the actual result
       if (match.status === 'finished' &&
           match.homeScore !== undefined &&

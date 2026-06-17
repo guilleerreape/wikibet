@@ -153,7 +153,7 @@ export default function AccuracyModal({ visible, onClose }: Props) {
             </TouchableOpacity>
           </View>
           <Text style={s.headerSub}>
-            Todas las competiciones · 7 mercados por partido · Tiempo real
+            Todas las competiciones · Mercados dinámicos · Tiempo real
           </Text>
 
           {/* Loading */}
@@ -182,7 +182,7 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                     </Text>
                     <View style={s.circlePill}>
                       <Text style={s.circlePillTxt}>
-                        {stats.totalMatches * 7} pronósticos totales
+                        {stats.totalPredictions} pronósticos totales
                       </Text>
                     </View>
                   </View>
@@ -260,7 +260,7 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                 <View style={s.howBox}>
                   <Text style={s.howTitle}>¿Cómo se calcula?</Text>
                   {[
-                    ['🤖', 'Cada partido analizado genera 7 pronósticos: resultado 1X2, +0.5 goles, +1.5 goles, +2.5 goles, -2.5 goles, ambos marcan y +3.5 goles.'],
+                    ['🤖', 'La IA genera tantos pronósticos como confianza tiene en cada mercado: resultado 1X2, goles, ambos marcan... Si está muy segura de algo, lo dice. Si no, se calla. Más aciertos = % más alto.'],
                     ['📰', 'La IA considera noticias recientes, lesiones, estado de forma y contexto táctico para maximizar la precisión en cada mercado.'],
                     ['🌍', 'Estadísticas compartidas globalmente. Todos los usuarios ven los mismos datos en tiempo real.'],
                     ['📅', 'Desde el día 1 del Mundial 2026. Se acumula con todos los partidos de todas las competiciones: LaLiga, Premier, UCL, etc.'],
@@ -276,7 +276,7 @@ export default function AccuracyModal({ visible, onClose }: Props) {
                   ⏱️ Actualizado: {stats.lastUpdated.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
                 </Text>
                 <Text style={s.disclaimer}>
-                  * El % global es el promedio compuesto de los 7 mercados en todos los partidos analizados.
+                  * El % global = pronósticos correctos / total pronósticos emitidos, todos los mercados y partidos.
                 </Text>
 
               </ScrollView>
