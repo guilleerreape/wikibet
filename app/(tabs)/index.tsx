@@ -22,28 +22,35 @@ const TEAM_FLAGS: Record<string, string> = {
   Argentina: '🇦🇷', Brasil: '🇧🇷', Uruguay: '🇺🇾', Colombia: '🇨🇴',
   Ecuador: '🇪🇨', Chile: '🇨🇱', Paraguay: '🇵🇾', Venezuela: '🇻🇪',
   Perú: '🇵🇪', Bolivia: '🇧🇴',
-  // UEFA
+  // UEFA — nombres en español (como los usa la app)
   España: '🇪🇸', Francia: '🇫🇷', Alemania: '🇩🇪', Portugal: '🇵🇹',
-  Italia: '🇮🇹', 'Países Bajos': '🇳🇱', Bélgica: '🇧🇪', Croacia: '🇭🇷',
-  Polonia: '🇵🇱', Dinamarca: '🇩🇰', Suiza: '🇨🇭', Austria: '🇦🇹',
-  Turquía: '🇹🇷', Hungría: '🇭🇺', Serbia: '🇷🇸', Rumanía: '🇷🇴',
-  Albania: '🇦🇱', Eslovenia: '🇸🇮', 'Rep. Checa': '🇨🇿', Ucrania: '🇺🇦',
-  Eslovaquia: '🇸🇰', Grecia: '🇬🇷', Noruega: '🇳🇴', Suecia: '🇸🇪',
+  Italia: '🇮🇹', 'Países Bajos': '🇳🇱', Holanda: '🇳🇱', // Holanda = como traduce ESPN
+  Bélgica: '🇧🇪', Croacia: '🇭🇷', Polonia: '🇵🇱', Dinamarca: '🇩🇰',
+  Suiza: '🇨🇭', Austria: '🇦🇹', Turquía: '🇹🇷', Hungría: '🇭🇺',
+  Serbia: '🇷🇸', Rumanía: '🇷🇴', Albania: '🇦🇱', Eslovenia: '🇸🇮',
+  'Rep. Checa': '🇨🇿', Ucrania: '🇺🇦', Eslovaquia: '🇸🇰', Grecia: '🇬🇷',
+  Noruega: '🇳🇴', Suecia: '🇸🇪',
   Escocia: '🏴󠁧󠁢󠁳󠁣󠁴󠁿', Gales: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', Inglaterra: '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
   Georgia: '🇬🇪', Kosovo: '🇽🇰', Islandia: '🇮🇸',
+  Bosnia: '🇧🇦', 'Bosnia-Herzegovina': '🇧🇦', // ESPN lo traduce como 'Bosnia'
+  Túnez: '🇹🇳', // nombre en español con acento
   // CONCACAF
   México: '🇲🇽', USA: '🇺🇸', 'Estados Unidos': '🇺🇸', Canadá: '🇨🇦',
   Honduras: '🇭🇳', 'Costa Rica': '🇨🇷', Guatemala: '🇬🇹', Panamá: '🇵🇦',
   Jamaica: '🇯🇲', 'Trinidad y Tobago': '🇹🇹', 'El Salvador': '🇸🇻',
+  Haití: '🇭🇹', Curazao: '🇨🇼',
   // CAF
   Marruecos: '🇲🇦', Senegal: '🇸🇳', Nigeria: '🇳🇬', Egipto: '🇪🇬',
   Camerún: '🇨🇲', 'Costa de Marfil': '🇨🇮', Ghana: '🇬🇭', Argelia: '🇩🇿',
-  'Sudáfrica': '🇿🇦', Malí: '🇲🇱', Angola: '🇦🇴', Mozambique: '🇲🇿',
-  'Rep. Dem. Congo': '🇨🇩', Guinea: '🇬🇳', Tanzania: '🇹🇿', Uganda: '🇺🇬',
-  Kenya: '🇰🇪', Zambia: '🇿🇲', Zimbabwe: '🇿🇼', Namibia: '🇳🇦',
+  Sudáfrica: '🇿🇦', Malí: '🇲🇱', Angola: '🇦🇴', Mozambique: '🇲🇿',
+  'R.D. Congo': '🇨🇩', 'Rep. Dem. Congo': '🇨🇩', Guinea: '🇬🇳',
+  Tanzania: '🇹🇿', Uganda: '🇺🇬', Kenya: '🇰🇪', Zambia: '🇿🇲',
+  Zimbabwe: '🇿🇼', Namibia: '🇳🇦', 'Cabo Verde': '🇨🇻',
   // AFC
   Japón: '🇯🇵', 'Corea del Sur': '🇰🇷', Australia: '🇦🇺', Irán: '🇮🇷',
-  'Arabia Saudita': '🇸🇦', Qatar: '🇶🇦', Uzbekistán: '🇺🇿', Indonesia: '🇮🇩',
+  'Arabia Saudita': '🇸🇦',
+  Qatar: '🇶🇦', Catar: '🇶🇦', // ESPN traduce Qatar como 'Catar' en español
+  Uzbekistán: '🇺🇿', Indonesia: '🇮🇩',
   China: '🇨🇳', 'Nueva Zelanda': '🇳🇿', Irak: '🇮🇶', Jordania: '🇯🇴',
 };
 

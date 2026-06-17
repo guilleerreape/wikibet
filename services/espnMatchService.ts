@@ -131,12 +131,12 @@ const STATIC: Record<string, CompetitionMatch[]> = {
     { id:'wc_g2', homeTeam:'Arabia Saudita',  awayTeam:'Uruguay',       homeScore:1, awayScore:1, date:'2026-06-15T21:00:00Z', status:'finished', league:'Mundial 2026 · Grupo H', leagueId:'FIFA.WORLD' },
     { id:'wc_h1', homeTeam:'Bélgica',         awayTeam:'Egipto',        homeScore:1, awayScore:1, date:'2026-06-15T17:00:00Z', status:'finished', league:'Mundial 2026 · Grupo G', leagueId:'FIFA.WORLD' },
     { id:'wc_h2', homeTeam:'Irán',            awayTeam:'Nueva Zelanda', homeScore:2, awayScore:2, date:'2026-06-16T16:00:00Z', status:'finished', league:'Mundial 2026 · Grupo G', leagueId:'FIFA.WORLD' },
-    // ── HOY 16 JUNIO ───────────────────────────────────────
-    { id:'wc_i1', homeTeam:'Francia',         awayTeam:'Senegal',       homeScore:null, awayScore:null, date:'2026-06-16T19:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo I', leagueId:'FIFA.WORLD', venue:'AT&T Stadium, Dallas' },
-    { id:'wc_i2', homeTeam:'Irak',            awayTeam:'Noruega',       homeScore:null, awayScore:null, date:'2026-06-16T22:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo I', leagueId:'FIFA.WORLD', venue:'Levi\'s Stadium, San Francisco' },
-    // ── PRÓXIMOS ────────────────────────────────────────────
-    { id:'wc_j1', homeTeam:'Argentina',       awayTeam:'Argelia',       homeScore:null, awayScore:null, date:'2026-06-17T01:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo J', leagueId:'FIFA.WORLD', venue:'MetLife Stadium, New Jersey' },
-    { id:'wc_j2', homeTeam:'Austria',         awayTeam:'Jordania',      homeScore:null, awayScore:null, date:'2026-06-17T04:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo J', leagueId:'FIFA.WORLD', venue:'SoFi Stadium, Los Ángeles' },
+    // ── 16-17 JUNIO (JUGADOS) ──────────────────────────────
+    { id:'wc_i1', homeTeam:'Francia',         awayTeam:'Senegal',       homeScore:2, awayScore:0, date:'2026-06-16T19:00:00Z', status:'finished', league:'Mundial 2026 · Grupo I', leagueId:'FIFA.WORLD', venue:'AT&T Stadium, Dallas' },
+    { id:'wc_i2', homeTeam:'Irak',            awayTeam:'Noruega',       homeScore:1, awayScore:3, date:'2026-06-16T22:00:00Z', status:'finished', league:'Mundial 2026 · Grupo I', leagueId:'FIFA.WORLD', venue:'Levi\'s Stadium, San Francisco' },
+    { id:'wc_j1', homeTeam:'Argentina',       awayTeam:'Argelia',       homeScore:3, awayScore:0, date:'2026-06-17T01:00:00Z', status:'finished', league:'Mundial 2026 · Grupo J', leagueId:'FIFA.WORLD', venue:'MetLife Stadium, New Jersey' },
+    { id:'wc_j2', homeTeam:'Austria',         awayTeam:'Jordania',      homeScore:2, awayScore:1, date:'2026-06-17T04:00:00Z', status:'finished', league:'Mundial 2026 · Grupo J', leagueId:'FIFA.WORLD', venue:'SoFi Stadium, Los Ángeles' },
+    // ── HOY 17 JUNIO (PENDIENTES) ─────────────────────────
     { id:'wc_k1', homeTeam:'Portugal',        awayTeam:'R.D. Congo',    homeScore:null, awayScore:null, date:'2026-06-17T17:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo K', leagueId:'FIFA.WORLD', venue:'Gillette Stadium, Boston' },
     { id:'wc_l1', homeTeam:'Inglaterra',      awayTeam:'Croacia',       homeScore:null, awayScore:null, date:'2026-06-17T20:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo L', leagueId:'FIFA.WORLD', venue:'Rose Bowl, Los Ángeles' },
     { id:'wc_l2', homeTeam:'Ghana',           awayTeam:'Panamá',        homeScore:null, awayScore:null, date:'2026-06-17T23:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo L', leagueId:'FIFA.WORLD', venue:'Hard Rock Stadium, Miami' },
@@ -304,16 +304,16 @@ export const WC_GROUPS_STATIC: Record<string, StandingEntry[]> = {
     { pos:4, team:'Cabo Verde',     played:1, won:0, drawn:1, lost:0, gf:0, ga:0, gd:0, points:1, group:'H' },
   ],
   I: [
-    { pos:1, team:'Francia',  played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'I' },
-    { pos:2, team:'Noruega',  played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'I' },
-    { pos:3, team:'Senegal',  played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'I' },
-    { pos:4, team:'Irak',     played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'I' },
+    { pos:1, team:'Francia',  played:1, won:1, drawn:0, lost:0, gf:2, ga:0, gd:2,  points:3, group:'I' },
+    { pos:2, team:'Noruega',  played:1, won:1, drawn:0, lost:0, gf:3, ga:1, gd:2,  points:3, group:'I' },
+    { pos:3, team:'Senegal',  played:1, won:0, drawn:0, lost:1, gf:0, ga:2, gd:-2, points:0, group:'I' },
+    { pos:4, team:'Irak',     played:1, won:0, drawn:0, lost:1, gf:1, ga:3, gd:-2, points:0, group:'I' },
   ],
   J: [
-    { pos:1, team:'Argentina', played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'J' },
-    { pos:2, team:'Austria',   played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'J' },
-    { pos:3, team:'Argelia',   played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'J' },
-    { pos:4, team:'Jordania',  played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'J' },
+    { pos:1, team:'Argentina', played:1, won:1, drawn:0, lost:0, gf:3, ga:0, gd:3,  points:3, group:'J' },
+    { pos:2, team:'Austria',   played:1, won:1, drawn:0, lost:0, gf:2, ga:1, gd:1,  points:3, group:'J' },
+    { pos:3, team:'Jordania',  played:1, won:0, drawn:0, lost:1, gf:1, ga:2, gd:-1, points:0, group:'J' },
+    { pos:4, team:'Argelia',   played:1, won:0, drawn:0, lost:1, gf:0, ga:3, gd:-3, points:0, group:'J' },
   ],
   K: [
     { pos:1, team:'Colombia',    played:0, won:0, drawn:0, lost:0, gf:0, ga:0, gd:0, points:0, group:'K' },
