@@ -12,6 +12,7 @@ interface MatchEventsPanelProps {
   estimatedEvents?: MatchEvent[];
   matchDate: string;
   liveMinute?: number;
+  rawStatus?: 'HT' | '1H' | '2H' | 'ET';
 }
 
 function getEventIcon(type: MatchEvent['type']): string {
@@ -26,16 +27,9 @@ function getEventIcon(type: MatchEvent['type']): string {
   }
 }
 
-function computeLiveMinute(matchDate: string): number {
-  const start = new Date(matchDate).getTime();
-  const now = Date.now();
-  const elapsed = Math.floor((now - start) / 60000);
-  return Math.min(Math.max(elapsed, 1), 90);
-}
 
-function LiveMinuteBadge({ matchDate, liveMinute }: { matchDate: string; liveMinute?: number }) {
+function LiveMinuteBadge({ liveMinute }: { liveMinute?: number }) {
   const anim = useRef(new Animated.Value(1)).current;
-  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     Animated.loop(
@@ -44,16 +38,14 @@ function LiveMinuteBadge({ matchDate, liveMinute }: { matchDate: string; liveMin
         Animated.timing(anim, { toValue: 1, duration: 600, useNativeDriver: true }),
       ])
     ).start();
-    // Update minute every 60 seconds
-    const interval = setInterval(() => setTick(t => t + 1), 60 * 1000);
-    return () => clearInterval(interval);
   }, []);
 
-  const minute = liveMinute ?? computeLiveMinute(matchDate);
   return (
     <View style={styles.liveMinuteRow}>
       <Animated.Text style={[styles.liveDot, { opacity: anim }]}>●</Animated.Text>
-      <Text style={styles.liveMinuteText}>EN DIRECTO · {minute}'</Text>
+      <Text style={styles.liveMinuteText}>
+        EN DIRECTO{liveMinute ? ` · ${liveMinute}'` : ''}
+      </Text>
     </View>
   );
 }
@@ -139,13 +131,13 @@ export default function MatchEventsPanel({
   estimatedEvents = [],
   matchDate,
   liveMinute,
+  rawStatus,
 }: MatchEventsPanelProps) {
   const displayEvents = events.length > 0 ? events : estimatedEvents;
   const isEstimated = events.length === 0 && estimatedEvents.length > 0;
 
-  // Detect halftime: live match where elapsed time is ~45-48 min
-  const elapsedMin = status === 'live' ? computeLiveMinute(matchDate) : 0;
-  const isHalftime = status === 'live' && elapsedMin >= 45 && elapsedMin <= 50;
+  // Use real API rawStatus for halftime — never rely on computed elapsed time
+  const isHalftime = status === 'live' && rawStatus === 'HT';
 
   // For upcoming matches, show a special "ready" panel
   if (status === 'upcoming') {
@@ -177,7 +169,7 @@ export default function MatchEventsPanel({
       {/* Live minute / Halftime */}
       {status === 'live' && isHalftime && <HalftimeBanner />}
       {status === 'live' && !isHalftime && (
-        <LiveMinuteBadge matchDate={matchDate} liveMinute={liveMinute} />
+        <LiveMinuteBadge liveMinute={liveMinute} />
       )}
 
       <View style={styles.divider} />

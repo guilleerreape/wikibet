@@ -477,12 +477,13 @@ export default function MatchesScreen() {
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Store TheSportsDB context for squad fallback in lineup building
   const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
-  // Real-time live scores map: matchId → { homeScore, awayScore, status, minute, scorers }
+  // Real-time live scores map: matchId → { homeScore, awayScore, status, minute, rawStatus, scorers }
   const [liveScoresMap, setLiveScoresMap] = useState<Record<string, {
     homeScore: number;
     awayScore: number;
     status: 'live' | 'finished';
     minute?: number;
+    rawStatus?: 'HT' | '1H' | '2H' | 'ET';
     homeScorers: { name: string; minute: number }[];
     awayScorers: { name: string; minute: number }[];
   }>>({});
@@ -591,6 +592,7 @@ export default function MatchesScreen() {
               awayScore: newAway,
               status: liveData.status as 'live' | 'finished',
               minute: liveData.minute,
+              rawStatus: liveData.rawStatus,
               homeScorers,
               awayScorers,
             },
@@ -894,6 +896,18 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       );
       setAnalysis(result);
 
+      // ── BUILD LINEUP from AI + squad data, update pitch if still empty ──────
+      // buildPredictedLineup merges AI names, TheSportsDB squad, and wcSquads fallback.
+      // Only updates if current lineup has fewer than 5 players (wcSquads may already be shown).
+      setMatchLineup(prev => {
+        const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
+        if (currentCount >= 10) return prev; // already have a good lineup, keep it
+        const aiLineup = buildPredictedLineup(match.homeTeam, match.awayTeam, result, sdbContext);
+        const aiCount = aiLineup.homePlayers.length + aiLineup.awayPlayers.length;
+        if (aiCount > currentCount) return aiLineup;
+        return prev;
+      });
+
       // Generate estimated events for static/finished matches with no ESPN data
       if (match.status === 'finished' || match.status === 'live') {
         const estimated = generateEstimatedEvents(match, result);
@@ -1045,11 +1059,10 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const effectiveAwayScore = liveData ? liveData.awayScore : match.awayScore;
     const isLive = effectiveStatus === 'live';
     const flash = goalFlash[match.id];
-    // Compute live minute from match start time (updates every 60s via liveTick)
-    const computedMinute = isLive
-      ? Math.min(90, Math.max(1, Math.floor((Date.now() - new Date(match.date).getTime()) / 60000)))
-      : undefined;
-    const displayMinute = liveData?.minute ?? computedMinute;
+    // Use ONLY real API minute — never compute from elapsed time (would be wrong at HT)
+    const displayMinute = liveData?.minute;
+    const rawStatus = liveData?.rawStatus;
+    const isHalftime = rawStatus === 'HT';
     const isFinished = effectiveStatus === 'finished';
     const predTs = predTimestamps[match.id];
     const predTimeStr = predTs ? new Date(predTs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null;
@@ -1112,7 +1125,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         {isLive && (
           <View style={styles.liveBadge}>
             <Text style={styles.liveText}>
-              ● EN VIVO{displayMinute ? ` · ${displayMinute}'` : ''}
+              {isHalftime ? '⏸️ DESCANSO' : `● EN VIVO${displayMinute ? ` · ${displayMinute}'` : ''}`}
             </Text>
           </View>
         )}
@@ -1904,6 +1917,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 estimatedEvents={estimatedEvents}
                 matchDate={selectedMatch.date}
                 liveMinute={liveScoresMap[selectedMatch.id]?.minute}
+                rawStatus={liveScoresMap[selectedMatch.id]?.rawStatus}
               />
             </View>
           )}

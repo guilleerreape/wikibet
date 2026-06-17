@@ -279,6 +279,7 @@ export const sportsDbService = {
     awayScore: number | null;
     status: 'upcoming' | 'live' | 'finished';
     minute?: number;
+    rawStatus?: 'HT' | '1H' | '2H' | 'ET';
   } | null> {
     const eventId = this.getSDBEventId(staticMatchId);
     if (!eventId) return null;
@@ -288,20 +289,40 @@ export const sportsDbService = {
 
     const hs = ev.intHomeScore != null && ev.intHomeScore !== '' ? parseInt(ev.intHomeScore) : null;
     const as_ = ev.intAwayScore != null && ev.intAwayScore !== '' ? parseInt(ev.intAwayScore) : null;
-    const strStatus = (ev.strStatus ?? ev.strProgress ?? '').toLowerCase();
-    const minute = parseInt(ev.strProgress ?? ev.intMinute ?? '0') || 0;
 
-    const LIVE_STATUSES = ['1h', '2h', 'ht', 'et', 'live', 'in progress', 'pens', '1st half', '2nd half', 'half time'];
+    // Use strStatus as the authoritative status field; strProgress may contain a number
+    const strStatus = (ev.strStatus ?? '').toLowerCase().trim();
+    const strProgress = (ev.strProgress ?? '').toLowerCase().trim();
+    const combinedStatus = strStatus || strProgress;
+
+    const LIVE_STATUSES = ['1h', '2h', 'ht', 'et', 'live', 'in progress', 'pens', '1st half', '2nd half', 'half time', 'halftime'];
     const FINISHED_STATUSES = ['ft', 'finished', 'match finished', 'aet', 'full time', 'post'];
 
     let status: 'upcoming' | 'live' | 'finished' = 'upcoming';
-    if (FINISHED_STATUSES.some(s => strStatus.includes(s))) {
+    if (FINISHED_STATUSES.some(s => combinedStatus.includes(s))) {
       status = 'finished';
-    } else if (LIVE_STATUSES.some(s => strStatus.includes(s)) || (hs !== null && as_ !== null)) {
+    } else if (LIVE_STATUSES.some(s => combinedStatus.includes(s)) || (hs !== null && as_ !== null)) {
       status = 'live';
     }
 
-    return { homeScore: hs, awayScore: as_, status, minute: minute || undefined };
+    // Detect halftime — must use REAL API status, never computed elapsed time
+    const isHT = combinedStatus === 'ht' || combinedStatus.includes('half time') || combinedStatus.includes('halftime');
+    const is1H = combinedStatus === '1h' || combinedStatus.includes('1st half');
+    const is2H = combinedStatus === '2h' || combinedStatus.includes('2nd half');
+    const isET = combinedStatus === 'et' || combinedStatus.includes('extra time');
+
+    let rawStatus: 'HT' | '1H' | '2H' | 'ET' | undefined;
+    if (isHT) rawStatus = 'HT';
+    else if (is2H) rawStatus = '2H';
+    else if (is1H) rawStatus = '1H';
+    else if (isET) rawStatus = 'ET';
+
+    // Parse actual match minute from the numeric intMinute field
+    // During HT, intMinute is typically 0 or undefined — return 45 instead
+    const apiMinute = parseInt(ev.intMinute ?? '0') || 0;
+    const minute = isHT ? 45 : (apiMinute > 0 ? apiMinute : undefined);
+
+    return { homeScore: hs, awayScore: as_, status, minute, rawStatus };
   },
 
   // Fetch squad + form concurrently for AI enrichment
