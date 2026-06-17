@@ -412,12 +412,14 @@ export default function MatchesScreen() {
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Store TheSportsDB context for squad fallback in lineup building
   const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
-  // Real-time live scores map: matchId → { homeScore, awayScore, status, minute }
+  // Real-time live scores map: matchId → { homeScore, awayScore, status, minute, scorers }
   const [liveScoresMap, setLiveScoresMap] = useState<Record<string, {
     homeScore: number;
     awayScore: number;
     status: 'live' | 'finished';
     minute?: number;
+    homeScorers: { name: string; minute: number }[];
+    awayScorers: { name: string; minute: number }[];
   }>>({});
   // Timestamps de última actualización de pronósticos por matchId
   const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
@@ -469,7 +471,6 @@ export default function MatchesScreen() {
         if (m.status === 'live') return true;
         if (m.status === 'upcoming') {
           const matchTime = new Date(m.date).getTime();
-          // Poll if started or starting within 5 minutes
           return matchTime <= now + 5 * 60 * 1000;
         }
         return false;
@@ -479,19 +480,36 @@ export default function MatchesScreen() {
       await Promise.all(candidates.map(async (match) => {
         try {
           const liveData = await sportsDbService.getLiveMatchScore(match.id);
-          if (!liveData) return;
-          if (liveData.homeScore !== null && liveData.awayScore !== null &&
-              (liveData.status === 'live' || liveData.status === 'finished')) {
-            setLiveScoresMap(prev => ({
-              ...prev,
-              [match.id]: {
-                homeScore: liveData.homeScore!,
-                awayScore: liveData.awayScore!,
-                status: liveData.status as 'live' | 'finished',
-                minute: liveData.minute,
-              },
-            }));
-          }
+          if (!liveData || liveData.homeScore === null || liveData.awayScore === null) return;
+          if (liveData.status !== 'live' && liveData.status !== 'finished') return;
+
+          // For live/finished matches, also fetch events to get goalscorers
+          let homeScorers: { name: string; minute: number }[] = [];
+          let awayScorers: { name: string; minute: number }[] = [];
+          try {
+            const events = await sportsDbService.getMatchEvents(
+              match.id, match.homeTeam, match.awayTeam
+            );
+            const goals = events.filter(e => e.type === 'goal' || e.type === 'penalty');
+            homeScorers = goals
+              .filter(e => e.team === 'home')
+              .map(e => ({ name: e.player, minute: e.minute }));
+            awayScorers = goals
+              .filter(e => e.team === 'away')
+              .map(e => ({ name: e.player, minute: e.minute }));
+          } catch {}
+
+          setLiveScoresMap(prev => ({
+            ...prev,
+            [match.id]: {
+              homeScore: liveData.homeScore!,
+              awayScore: liveData.awayScore!,
+              status: liveData.status as 'live' | 'finished',
+              minute: liveData.minute,
+              homeScorers,
+              awayScorers,
+            },
+          }));
         } catch {}
       }));
     };
@@ -572,6 +590,32 @@ export default function MatchesScreen() {
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMatch?.id, selectedMatch?.status]);
+
+  // ─── Auto-refresh AI predictions when modal is open for live match ───────────
+  // Re-runs full AI analysis every 5 minutes for live matches to update predictions
+  useEffect(() => {
+    if (!selectedMatch || !analysis) return;
+    const isCurrentlyLive = (liveScoresMap[selectedMatch.id]?.status ?? selectedMatch.status) === 'live';
+    if (!isCurrentlyLive) return;
+
+    const refreshPredictions = async () => {
+      try {
+        const sdbCtx = sdbCtxRef
+          ? { homeSquad: sdbCtxRef.homeSquad as any, awaySquad: sdbCtxRef.awaySquad as any, homeForm: {} as any, awayForm: {} as any }
+          : undefined;
+        const result = await advancedAIAnalysis.analyzeMatchComprehensive(
+          selectedMatch.homeTeam, selectedMatch.awayTeam, selectedMatch.league, sdbCtx
+        );
+        setAnalysis(result);
+        savePredTimestamp(selectedMatch.id);
+      } catch {}
+    };
+
+    // Refresh predictions every 5 minutes during live match
+    const predInterval = setInterval(refreshPredictions, 5 * 60 * 1000);
+    return () => clearInterval(predInterval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMatch?.id, analysis != null, liveScoresMap[selectedMatch?.id ?? '']?.status]);
 
   useEffect(() => {
     const todayStart = getTodayStart().getTime();
@@ -916,6 +960,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       outputRange: ['#ef4444', '#ff6b6b'],
     });
 
+    const homeScorers = liveData?.homeScorers ?? [];
+    const awayScorers = liveData?.awayScorers ?? [];
+
     const cardContent = (
       <>
         {isLive && (
@@ -931,23 +978,43 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         )}
         <View style={styles.matchRow}>
+          {/* HOME team + scorers */}
           <View style={styles.teamSide}>
             {homeFlag ? <Text style={styles.matchFlag}>{homeFlag}</Text> : null}
-            <Text style={styles.teamName} numberOfLines={1}>{match.homeTeam}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.teamName} numberOfLines={1}>{match.homeTeam}</Text>
+              {(isLive || isFinished) && homeScorers.map((s, i) => (
+                <Text key={i} style={styles.scorerLine} numberOfLines={1}>
+                  ⚽ {s.name.split(' ').pop()} {s.minute}'
+                </Text>
+              ))}
+            </View>
           </View>
+
+          {/* Score */}
           <View style={styles.scoreBox}>
             {isFinished || isLive ? (
               <Text style={[styles.score, isLive && { color: colors.accent.red }]}>
-                {effectiveHomeScore ?? 0} - {effectiveAwayScore ?? 0}
+                {effectiveHomeScore ?? 0}–{effectiveAwayScore ?? 0}
               </Text>
             ) : (
               <Text style={styles.kickoff}>{time}</Text>
             )}
+            {isFinished && <Text style={{ color: '#4b5563', fontSize: 9, textAlign: 'center' }}>FIN</Text>}
           </View>
+
+          {/* AWAY team + scorers */}
           <View style={[styles.teamSide, { justifyContent: 'flex-end' }]}>
-            <Text style={[styles.teamName, { textAlign: 'right' }]} numberOfLines={1}>
-              {match.awayTeam}
-            </Text>
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              <Text style={[styles.teamName, { textAlign: 'right' }]} numberOfLines={1}>
+                {match.awayTeam}
+              </Text>
+              {(isLive || isFinished) && awayScorers.map((s, i) => (
+                <Text key={i} style={[styles.scorerLine, { textAlign: 'right' }]} numberOfLines={1}>
+                  {s.minute}' {s.name.split(' ').pop()} ⚽
+                </Text>
+              ))}
+            </View>
             {awayFlag ? <Text style={styles.matchFlag}>{awayFlag}</Text> : null}
           </View>
         </View>
@@ -981,60 +1048,65 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     );
   };
 
-  // ─── Build predicted lineup from AI analysis data ────────────────────────────
-  // Priority: 1) AI alineaciones field with real names, 2) TheSportsDB squad as fallback
+  // ─── Build predicted lineup ───────────────────────────────────────────────────
+  // Strategy: TheSportsDB squad is PRIMARY (reliable), AI names are secondary
   function buildPredictedLineup(
     homeTeam: string,
     awayTeam: string,
     anal: any,
     sdbCtx?: { homeSquad: any[]; awaySquad: any[] } | null
   ): MatchLineup {
-    const homeForm = anal?.alineaciones?.local?.formacion ?? '4-3-3';
-    const awayForm = anal?.alineaciones?.visitante?.formacion ?? '4-3-3';
+    const homeForm = anal?.alineaciones?.local?.formacion ?? anal?.equipoLocal?.formacion ?? '4-3-3';
+    const awayForm = anal?.alineaciones?.visitante?.formacion ?? anal?.equipoVisitante?.formacion ?? '4-3-3';
 
-    // Generic position labels that should NOT be treated as real player names
-    const GENERIC_LABELS = new Set([
-      'portero','delantero','defensa','medio','centrocampista','extremo','lateral',
-      'mediapunta','mediocentro','interior','goalkeeper','defender','midfielder','forward',
-      'winger','striker','back'
-    ]);
-    function isGenericLabel(name: string): boolean {
-      const n = name.toLowerCase().replace(/[0-9]/g, '').trim();
-      if (n.length <= 2) return true;
-      for (const label of GENERIC_LABELS) {
-        if (n.startsWith(label)) return true;
-      }
-      return false;
+    // Position priority for sorting squad (GK first, then DEF, MID, FWD)
+    function positionPriority(pos: string): number {
+      const p = (pos ?? '').toLowerCase();
+      if (p.includes('goalkeeper') || p.includes('portero') || p === 'gk') return 0;
+      if (p.includes('back') || p.includes('defender') || p.includes('defensa') || p.includes('centre-back')) return 1;
+      if (p.includes('defensive mid') || p.includes('central mid') || p.includes('midfielder') || p.includes('medio')) return 2;
+      if (p.includes('attacking mid') || p.includes('mediapunta')) return 3;
+      if (p.includes('wing') || p.includes('forward') || p.includes('striker') || p.includes('delantero') || p.includes('extremo')) return 4;
+      return 2; // default to midfielder
     }
 
-    function extractPlayers(titulares: any[]): { name: string; number: number; position: string }[] {
-      if (!titulares || titulares.length === 0) return [];
+    // Build 11-player lineup from squad, sorted by position
+    function buildFromSquad(squad: any[]): { name: string; number: number; position: string }[] {
+      if (!squad?.length) return [];
+      const valid = squad.filter(p => (p.name ?? p.strPlayer ?? '').length > 1);
+      const sorted = [...valid].sort((a, b) => positionPriority(a.position) - positionPriority(b.position));
+      return sorted.slice(0, 11).map((p, i) => ({
+        name: (p.name ?? p.strPlayer ?? '').trim(),
+        number: p.number ?? (i + 1),
+        position: p.position ?? '',
+      }));
+    }
+
+    // Extract players from AI response, filtering out generic placeholder labels
+    const GENERIC_RE = /^(portero|delantero|defensa|medio|centrocampista|extremo|lateral|mediapunta|mediocentro|goalkeeper|defender|midfielder|forward|winger|striker|back|nombre|name|jugador|player|nombrereal|nr)[0-9]*$/i;
+    function extractFromAI(titulares: any[]): { name: string; number: number; position: string }[] {
+      if (!titulares?.length) return [];
       return titulares
         .map((p: any) => ({
-          name: typeof p === 'string' ? p : (p.nombre ?? p.name ?? ''),
+          name: (typeof p === 'string' ? p : (p.nombre ?? p.name ?? '')).trim(),
           number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
           position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
         }))
-        .filter(p => p.name && !isGenericLabel(p.name));
+        .filter(p => p.name.length > 2 && !GENERIC_RE.test(p.name));
     }
 
-    let homePlayers = extractPlayers(anal?.alineaciones?.local?.titulares ?? []);
-    let awayPlayers = extractPlayers(anal?.alineaciones?.visitante?.titulares ?? []);
+    // ── PRIMARY: TheSportsDB squad (always available for known teams) ──
+    let homePlayers = buildFromSquad(sdbCtx?.homeSquad ?? []);
+    let awayPlayers = buildFromSquad(sdbCtx?.awaySquad ?? []);
 
-    // Fallback: use TheSportsDB squad when AI didn't give real player names
-    if (homePlayers.length === 0 && sdbCtx?.homeSquad?.length) {
-      homePlayers = sdbCtx.homeSquad.slice(0, 11).map((p: any, i: number) => ({
-        name: p.name ?? p.strPlayer ?? '',
-        number: p.number ?? i + 1,
-        position: p.position ?? '',
-      }));
+    // ── SECONDARY: AI names (only if squad unavailable or very thin) ──
+    if (homePlayers.length < 8) {
+      const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
+      if (aiHome.length > homePlayers.length) homePlayers = aiHome;
     }
-    if (awayPlayers.length === 0 && sdbCtx?.awaySquad?.length) {
-      awayPlayers = sdbCtx.awaySquad.slice(0, 11).map((p: any, i: number) => ({
-        name: p.name ?? p.strPlayer ?? '',
-        number: p.number ?? i + 1,
-        position: p.position ?? '',
-      }));
+    if (awayPlayers.length < 8) {
+      const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
+      if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
     }
 
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
@@ -1814,9 +1886,10 @@ const styles = StyleSheet.create({
   },
   predUpdateText: { color: '#22c55e', fontSize: 9, fontWeight: '700' },
   matchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  teamSide: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  matchFlag: { fontSize: 16 },
+  teamSide: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
+  matchFlag: { fontSize: 16, paddingTop: 2 },
   teamName: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.text.primary },
+  scorerLine: { fontSize: 9, color: '#22c55e', fontWeight: '600', marginTop: 1 },
   scoreBox: { paddingHorizontal: 10 },
   score: { fontSize: 18, fontWeight: 'bold', color: colors.text.primary },
   kickoff: { fontSize: 15, fontWeight: '700', color: colors.accent.blue },

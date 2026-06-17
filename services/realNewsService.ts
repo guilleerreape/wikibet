@@ -13,10 +13,10 @@ export interface RealNews {
   relevanceScore: number;
 }
 
-// Cache: 5 minutos
+// Cache: 8 minutos (balance entre frescura y coste de API)
 let _cache: RealNews[] | null = null;
 let _cacheTime = 0;
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 8 * 60 * 1000;
 
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
 const CLAUDE_URL = 'https://api.anthropic.com/v1/messages';
@@ -51,6 +51,50 @@ const EMERGENCY_NEWS: RealNews[] = [
   },
 ];
 
+// ─── Fetch today's WC fixtures dynamically ───────────────────────────────────
+async function fetchTodayFixtures(): Promise<string> {
+  try {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const tomorrowEnd = todayStart + 48 * 60 * 60 * 1000; // next 48h
+
+    const res = await fetch(
+      'https://site.api.espn.com/apis/site/v2/sports/soccer/FIFA.WORLD/scoreboard?limit=50',
+      { headers: { Accept: 'application/json' } }
+    );
+    if (!res.ok) throw new Error('ESPN failed');
+    const data = await res.json();
+    const events: any[] = data?.events ?? [];
+
+    const lines: string[] = [];
+    for (const ev of events) {
+      const d = new Date(ev.date ?? '');
+      const ts = d.getTime();
+      if (ts < todayStart - 24 * 60 * 60 * 1000 || ts > tomorrowEnd) continue;
+      const competitors = ev.competitions?.[0]?.competitors ?? [];
+      const home = competitors.find((c: any) => c.homeAway === 'home');
+      const away = competitors.find((c: any) => c.homeAway === 'away');
+      if (!home || !away) continue;
+      const hn = home.team?.displayName ?? home.team?.name ?? '';
+      const an = away.team?.displayName ?? away.team?.name ?? '';
+      const status = ev.competitions?.[0]?.status?.type?.name ?? '';
+      const hs = home.score;
+      const as_ = away.score;
+      const scoreStr = hs != null ? ` (${hs}-${as_})` : '';
+      const timeStr = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+      const venueStr = ev.competitions?.[0]?.venue?.fullName ? `, ${ev.competitions[0].venue.fullName}` : '';
+      const statusStr = status.includes('Final') ? ' — TERMINADO' : status.includes('In') ? ' — EN DIRECTO' : '';
+      lines.push(`${hn} vs ${an} (${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}, ${timeStr}${venueStr})${scoreStr}${statusStr}`);
+    }
+    return lines.length > 0 ? lines.join('\n') : '';
+  } catch {
+    // Fallback to static data when ESPN fails
+    const d = new Date();
+    const dateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    return `Mundial 2026 Fase de Grupos — ${dateStr}. Partidos en curso o próximos en USA, México y Canadá.`;
+  }
+}
+
 // ─── Genera noticias con IA (Claude Haiku) ────────────────────────────────────
 async function generateAINews(): Promise<RealNews[]> {
   if (!CLAUDE_API_KEY) return EMERGENCY_NEWS;
@@ -59,16 +103,10 @@ async function generateAINews(): Promise<RealNews[]> {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
   const todayShort = new Date().toLocaleDateString('es-ES');
+  const currentTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-  // Today's WC fixtures for context
-  const todayFixtures = [
-    "Portugal vs R.D. Congo (17 Jun, 17:00 UTC, Gillette Stadium Boston)",
-    "Inglaterra vs Croacia (17 Jun, 20:00 UTC, Rose Bowl LA)",
-    "Ghana vs Panamá (17 Jun, 23:00 UTC, Hard Rock Miami)",
-    "Uzbekistán vs Colombia (18 Jun, 02:00 UTC, Arrowhead Kansas City)",
-    "Rep. Checa vs Sudáfrica (18 Jun, 16:00 UTC)",
-    "Suiza vs Bosnia (18 Jun, 19:00 UTC)",
-  ].join('\n');
+  // Fetch DYNAMIC fixtures (not hardcoded dates)
+  const todayFixtures = await fetchTodayFixtures();
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
@@ -88,33 +126,43 @@ async function generateAINews(): Promise<RealNews[]> {
         max_tokens: 1400,
         messages: [{
           role: 'user',
-          content: `Hoy es ${today}. Es la fase de grupos del Mundial 2026 en USA, México y Canadá.
+          content: `Hoy es ${today} — ${currentTime}h. Es la fase de grupos del Mundial 2026 en USA, México y Canadá.
 
-PARTIDOS DE HOY Y PRÓXIMAS 24H:
-${todayFixtures}
+PARTIDOS ACTUALES / PRÓXIMAS 48H (datos en tiempo real):
+${todayFixtures || 'Fase de grupos del Mundial 2026 — partidos en curso o próximos'}
 
-Genera 8 noticias deportivas ACTUALES y MUY CREÍBLES para HOY (${todayShort}) sobre el Mundial 2026.
-Mezcla noticias sobre: posibles bajas por lesión o molestias, análisis tácticos pre-partido, movimientos de cuotas, partidos clave de hoy o mañana, rendimiento reciente de selecciones.
+Genera 9 noticias deportivas ULTRA-ACTUALES para ahora mismo (${todayShort}, ${currentTime}h).
+Son noticias FRESCAS que reflejan el estado actual del torneo. Varía el contenido en cada generación.
 
-Genera noticias específicas relacionadas con ESTOS PARTIDOS: lesiones de jugadores clave de Portugal, Inglaterra, Colombia, etc. que juegan hoy o mañana.
+Tipos de noticias (mezcla todos):
+1. Lesiones/molestias de jugadores clave ANTES de sus próximos partidos (muy específico: jugador, minuto, tipo lesión)
+2. Resultados recientes + análisis de rendimiento (quién está en forma, quién no)
+3. Análisis táctico pre-partido de los que juegan hoy/mañana
+4. Rumores de fichajes relacionados con jugadores del Mundial (enero siguiente)
+5. Declaraciones de entrenadores / controversias / decisiones de alineación
+6. Movimientos de cuotas en casa de apuestas por noticias de última hora
+7. Estadísticas sorprendentes del torneo (goleadores, tarjetas, xG, etc.)
+8. Bajas por sanción o suspensión antes de partidos clave
+9. Estado del césped, clima, ventaja local en estadios específicos
 
 REGLAS:
-- Solo noticias que ocurren HOY o que hablan de los PRÓXIMOS días
-- Menciona jugadores reales de selecciones conocidas (Mbappé, Messi, Bellingham, Yamal, Cristiano, Salah, etc.)
-- Las 3 primeras deben ser impacto HIGH con info de lesiones o análisis tácticos clave
-- Incluye siempre el impacto concreto en mercados de apuestas
+- Menciona jugadores reales ACTUALES: Mbappé, Messi, Cristiano, Bellingham, Yamal, Vinicius, Haaland, De Bruyne, etc.
+- Relaciona con los partidos concretos del listado de arriba
+- Las 3 primeras: impacto HIGH (lesión, resultado clave, análisis táctico)
+- Impacto en apuestas: siempre concreto (qué mercado, dirección del movimiento)
+- Noticias de hoy, NO de hace semanas. El timestamp es ${currentTime}h de hoy.
 
 Responde SOLO con este JSON (sin texto extra):
 {
   "noticias": [
     {
       "titulo": "...",
-      "descripcion": "... (2-3 frases detalladas con nombres reales)",
-      "categoria": "injury|form|tactical|suspension",
+      "descripcion": "... (2-3 frases detalladas con nombres reales, datos concretos)",
+      "categoria": "injury|form|tactical|suspension|transfer",
       "impacto": "HIGH|MEDIUM|LOW",
       "equipos": ["Equipo1", "Equipo2"],
-      "impactoApuestas": "... (qué mercados afecta, qué cuotas se mueven)",
-      "emoji": "🇦🇷|🇪🇸|🇩🇪|🇫🇷|🇧🇷|🩹|📊|⚠️|🏆"
+      "impactoApuestas": "... (qué mercados afecta, qué cuotas se mueven, en qué dirección)",
+      "emoji": "🇦🇷|🇪🇸|🇩🇪|🇫🇷|🇧🇷|🩹|📊|⚠️|🏆|🔴|📰"
     }
   ]
 }`,
