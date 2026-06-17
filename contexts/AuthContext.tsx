@@ -3,6 +3,7 @@ import { supabase, getProfile, getDailyUsage, incrementUsage, FREE_LIMITS, type 
 import type { Session, User } from '@supabase/supabase-js';
 
 const BYPASS_CODE   = '130823';
+const BYPASS_CODE_2 = '111000';
 const BYPASS_KEY    = 'wikibet_bypass';
 const WELCOME_KEY   = 'wikibet_welcomed_v2';
 
@@ -146,7 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function loginWithCode(code: string): boolean {
-    if (code.trim() === BYPASS_CODE) {
+    const trimmed = code.trim();
+    if (trimmed === BYPASS_CODE || trimmed === BYPASS_CODE_2) {
       setBypassActive(true);
       saveBypass(true);
       return true;
