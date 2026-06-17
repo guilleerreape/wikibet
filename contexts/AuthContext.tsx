@@ -66,22 +66,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Restaurar bypass de sesión anterior
     if (readBypass()) setBypassActive(true);
 
-    // Timeout de seguridad: si getSession tarda más de 3s, desbloquear igualmente
-    const safetyTimer = setTimeout(() => setLoading(false), 3000);
+    // Si la URL tiene token de OAuth (implicit flow), esperar a que Supabase lo procese
+    const hasOAuthToken = typeof window !== 'undefined' &&
+      (window.location.hash.includes('access_token') ||
+       window.location.search.includes('code='));
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      clearTimeout(safetyTimer);
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadProfile(session.user.id);
-        loadUsage(session.user.id);
-      }
-      setLoading(false);
-    }).catch(() => {
-      clearTimeout(safetyTimer);
-      setLoading(false);
-    });
+    const safetyTimer = setTimeout(() => setLoading(false), hasOAuthToken ? 6000 : 3000);
+
+    // Con implicit flow, Supabase detecta el token del hash automáticamente
+    // Esperamos un tick para que lo procese antes de llamar getSession
+    const initDelay = hasOAuthToken ? 800 : 0;
+    setTimeout(() => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        clearTimeout(safetyTimer);
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          loadProfile(session.user.id);
+          loadUsage(session.user.id);
+        }
+        setLoading(false);
+      }).catch(() => {
+        clearTimeout(safetyTimer);
+        setLoading(false);
+      });
+    }, initDelay);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
@@ -109,9 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── Auth ─────────────────────────────────────────────────────────────────
   async function signInWithGoogle() {
-    const redirectUrl = typeof window !== 'undefined'
+    // Siempre usar wikibet.app en producción para evitar redirects 307 que pierden el hash
+    const isProd = typeof window !== 'undefined' &&
+      (window.location.hostname === 'wikibet.app' ||
+       window.location.hostname.endsWith('.vercel.app'));
+    const redirectUrl = isProd
       ? `${window.location.origin}/auth/callback`
-      : 'https://project-o8ei0.vercel.app/auth/callback';
+      : 'https://wikibet.app/auth/callback';
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: redirectUrl, queryParams: { prompt: 'select_account' } },
