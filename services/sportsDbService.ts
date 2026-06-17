@@ -247,6 +247,37 @@ export const sportsDbService = {
     return events.sort((a, b) => a.minute - b.minute);
   },
 
+  // Fetch live/current score and status for a match
+  async getLiveMatchScore(staticMatchId: string): Promise<{
+    homeScore: number | null;
+    awayScore: number | null;
+    status: 'upcoming' | 'live' | 'finished';
+    minute?: number;
+  } | null> {
+    const eventId = this.getSDBEventId(staticMatchId);
+    if (!eventId) return null;
+    const data = await fetchSDB<any>(`/lookupevent.php?id=${eventId}`);
+    const ev = data?.events?.[0];
+    if (!ev) return null;
+
+    const hs = ev.intHomeScore != null && ev.intHomeScore !== '' ? parseInt(ev.intHomeScore) : null;
+    const as_ = ev.intAwayScore != null && ev.intAwayScore !== '' ? parseInt(ev.intAwayScore) : null;
+    const strStatus = (ev.strStatus ?? ev.strProgress ?? '').toLowerCase();
+    const minute = parseInt(ev.strProgress ?? ev.intMinute ?? '0') || 0;
+
+    const LIVE_STATUSES = ['1h', '2h', 'ht', 'et', 'live', 'in progress', 'pens', '1st half', '2nd half', 'half time'];
+    const FINISHED_STATUSES = ['ft', 'finished', 'match finished', 'aet', 'full time', 'post'];
+
+    let status: 'upcoming' | 'live' | 'finished' = 'upcoming';
+    if (FINISHED_STATUSES.some(s => strStatus.includes(s))) {
+      status = 'finished';
+    } else if (LIVE_STATUSES.some(s => strStatus.includes(s)) || (hs !== null && as_ !== null)) {
+      status = 'live';
+    }
+
+    return { homeScore: hs, awayScore: as_, status, minute: minute || undefined };
+  },
+
   // Fetch squad + form concurrently for AI enrichment
   async getMatchContext(homeTeam: string, awayTeam: string, matchId: string): Promise<{
     homeSquad: SDBSquadPlayer[];
