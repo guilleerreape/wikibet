@@ -46,45 +46,110 @@ const at = StyleSheet.create({
   },
 });
 
-// ─── Label animado para tabs ──────────────────────────────────────────────────
-// eslint-disable-next-line react/display-name
-const AnimatedTabLabel = ({ label, focused }: { label: string; focused: boolean }) => {
-  const anim = useRef(new Animated.Value(0)).current;
+// ─── TabIcon — emoji + label + green dot + optional AI ring ──────────────────
+function TabIcon({ emoji, label, focused, isAI = false }: { emoji: string; label: string; focused: boolean; isAI?: boolean }) {
+  const scaleAnim  = useRef(new Animated.Value(focused ? 1 : 0.82)).current;
+  const glowAnim   = useRef(new Animated.Value(0)).current;
+  const ringAnim   = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Spring the emoji scale when focused changes
+    Animated.spring(scaleAnim, {
+      toValue: focused ? 1 : 0.82,
+      useNativeDriver: true,
+      damping: 12,
+      stiffness: 200,
+    }).start();
+  }, [focused]);
+
+  useEffect(() => {
+    // Always-on pulsing ring for AI tab
+    if (isAI) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringAnim, { toValue: 1, duration: 1200, useNativeDriver: false }),
+          Animated.timing(ringAnim, { toValue: 0, duration: 1200, useNativeDriver: false }),
+        ])
+      ).start();
+    }
+    return () => { ringAnim.stopAnimation(); };
+  }, [isAI]);
 
   useEffect(() => {
     if (focused) {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(anim, { toValue: 1, duration: 1400, useNativeDriver: false }),
-          Animated.timing(anim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
         ])
       ).start();
     } else {
-      anim.stopAnimation();
-      anim.setValue(0);
+      glowAnim.stopAnimation();
+      glowAnim.setValue(0);
     }
-    return () => { anim.stopAnimation(); };
+    return () => { glowAnim.stopAnimation(); };
   }, [focused]);
 
-  const animColor = anim.interpolate({
+  const labelColor = glowAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: focused
       ? ['#22c55e', '#f59e0b', '#22c55e']
       : [colors.text.muted, colors.text.muted, colors.text.muted],
   });
 
-  return (
-    <Animated.Text style={{
-      fontSize: 10,
-      fontWeight: focused ? '800' : '600',
-      color: animColor,
-      marginTop: 1,
-      letterSpacing: focused ? 0.2 : 0,
-    }}>
-      {label}
-    </Animated.Text>
+  const ringBorderColor = ringAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#22c55e60', '#22c55ecc', '#22c55e60'],
+  });
+  const ringOpacity = ringAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.4, 1, 0.4] });
+
+  const inner = (
+    <View style={ti.wrap}>
+      {/* Green indicator line at top when focused */}
+      {focused && <View style={ti.topLine} />}
+      {/* Emoji */}
+      <Animated.Text style={[ti.emoji, { transform: [{ scale: scaleAnim }], fontSize: focused ? 22 : 18 }]}>
+        {emoji}
+      </Animated.Text>
+      {/* Label */}
+      <Animated.Text style={[ti.label, { color: labelColor, fontWeight: focused ? '800' : '600' }]}>
+        {label}
+      </Animated.Text>
+      {/* Green glowing dot under active tab */}
+      {focused && <View style={ti.dot} />}
+    </View>
   );
-};
+
+  if (isAI) {
+    return (
+      <Animated.View style={[ti.aiRing, { borderColor: ringBorderColor, opacity: ringOpacity }]}>
+        {inner}
+      </Animated.View>
+    );
+  }
+  return inner;
+}
+
+const ti = StyleSheet.create({
+  wrap: { alignItems: 'center', justifyContent: 'center', paddingTop: 2, minWidth: 52 },
+  topLine: {
+    position: 'absolute', top: -6, left: '20%', right: '20%',
+    height: 2, backgroundColor: '#22c55e', borderRadius: 1,
+  },
+  emoji: { textAlign: 'center' },
+  label: { fontSize: 9, marginTop: 2, letterSpacing: 0.1, textAlign: 'center' },
+  dot: {
+    width: 4, height: 4, borderRadius: 2,
+    backgroundColor: '#22c55e',
+    marginTop: 3,
+    shadowColor: '#22c55e', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.9, shadowRadius: 4,
+  },
+  aiRing: {
+    borderWidth: 1.5, borderRadius: 12,
+    padding: 2,
+    marginBottom: 2,
+  },
+});
 
 // ─── Menú desplegable de perfil ───────────────────────────────────────────────
 function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -320,7 +385,8 @@ export default function TabsLayout() {
         },
         tabBarActiveTintColor: colors.accent.green,
         tabBarInactiveTintColor: colors.text.muted,
-        tabBarLabelStyle: { display: 'none' }, // usamos AnimatedTabLabel manual
+        tabBarLabelStyle: { display: 'none' },
+        tabBarLabel: () => null,
         tabBarIconStyle: { marginBottom: 0 },
       }}
     >
@@ -329,35 +395,40 @@ export default function TabsLayout() {
         options={{
           headerTitle: () => <AnimatedWikiTitle />,
           headerTitleAlign: 'center',
-          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📊 Partidos" focused={focused} />,
+          tabBarLabel: () => null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📊" label="Partidos" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="value"
         options={{
           title: '💰 Value Bets',
-          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="💰 Value" focused={focused} />,
+          tabBarLabel: () => null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Value" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="ia"
         options={{
           title: '🤖 Chat IA',
-          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="🤖 IA" focused={focused} />,
+          tabBarLabel: () => null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🤖" label="IA" focused={focused} isAI />,
         }}
       />
       <Tabs.Screen
         name="apuestas"
         options={{
           title: '📒 Mis Apuestas',
-          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📒 Apuestas" focused={focused} />,
+          tabBarLabel: () => null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📒" label="Apuestas" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="noticias"
         options={{
           title: '📰 Noticias',
-          tabBarLabel: ({ focused }) => <AnimatedTabLabel label="📰 Noticias" focused={focused} />,
+          tabBarLabel: () => null,
+          tabBarIcon: ({ focused }) => <TabIcon emoji="📰" label="Noticias" focused={focused} />,
         }}
       />
       <Tabs.Screen name="jugadores" options={{ href: null }} />

@@ -206,8 +206,7 @@ export default function IAScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>🤖 Chat IA</Text>
-          <Text style={styles.subtitle}>Analista deportivo · Mundial 2026 · Apuestas</Text>
+          <Text style={styles.subtitle}>Analista IA · jugadores · equipos · partidos</Text>
         </View>
         {messages.length > 0 && (
           <TouchableOpacity onPress={clearMessages} disabled={loading}>
@@ -239,7 +238,7 @@ export default function IAScreen() {
               {/* Badge live mundial */}
               <View style={styles.latestResultBadge}>
                 <Text style={styles.latestResultText}>
-                  🔴 EN DIRECTO · Mundial 2026 · {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                  🤖 IA activa · Pregunta lo que quieras
                 </Text>
               </View>
 
@@ -312,7 +311,7 @@ export default function IAScreen() {
                   <View style={[styles.bubble, styles.bubbleAI, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
                     <ActivityIndicator size="small" color={colors.accent.green} />
                     <Text style={[styles.bubbleText, styles.bubbleTextAI, { color: colors.text.muted }]}>
-                      Analizando con datos del Mundial 2026...
+                      Analizando...
                     </Text>
                   </View>
                 </View>

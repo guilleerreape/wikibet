@@ -18,6 +18,7 @@ import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, Standing
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
+import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
@@ -388,6 +389,7 @@ function Section({ icon, title, children, accent, delay = 0 }: { icon: string; t
 export default function MatchesScreen() {
   const { user, isAuthenticated, trackAnalysis, setShowLoginModal } = useAuth();
   const [quickBet, setQuickBet] = useState<QuickBetData | null>(null);
+  const [smartBetMatch, setSmartBetMatch] = useState<SmartMatch | null>(null);
   const [selectedComp, setSelectedComp] = useState<Competition>(COMPETITIONS[0]);
   const [matches, setMatches] = useState<CompetitionMatch[]>([]);
   const [filtered, setFiltered] = useState<CompetitionMatch[]>([]);
@@ -647,13 +649,27 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const isFinished = match.status === 'finished';
     const homeFlag = getFlag(match.homeTeam);
     const awayFlag = getFlag(match.awayTeam);
+    const livePulse = useRef(new Animated.Value(0)).current;
 
-    return (
-      <TouchableOpacity
-        style={[styles.card, isLive && styles.cardLive]}
-        onPress={() => openAnalysis(match)}
-        activeOpacity={0.75}
-      >
+    useEffect(() => {
+      if (isLive) {
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(livePulse, { toValue: 1, duration: 900, useNativeDriver: false }),
+            Animated.timing(livePulse, { toValue: 0, duration: 900, useNativeDriver: false }),
+          ])
+        ).start();
+      }
+      return () => { livePulse.stopAnimation(); };
+    }, [isLive]);
+
+    const liveBorderColor = livePulse.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#ef4444', '#ff6b6b'],
+    });
+
+    const cardContent = (
+      <>
         {isLive && <View style={styles.liveBadge}><Text style={styles.liveText}>● EN VIVO</Text></View>}
         <View style={styles.matchRow}>
           <View style={styles.teamSide}>
@@ -682,6 +698,26 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             {isLive ? '🔴 Análisis IA Live' : isFinished ? '📊 Ver resultados análisis' : '🤖 Análisis IA'} →
           </Text>
         </View>
+      </>
+    );
+
+    if (isLive) {
+      return (
+        <Animated.View style={[styles.card, styles.cardLive, { borderColor: liveBorderColor, borderWidth: 1.5 }]}>
+          <TouchableOpacity onPress={() => openAnalysis(match)} activeOpacity={0.75}>
+            {cardContent}
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => openAnalysis(match)}
+        activeOpacity={0.75}
+      >
+        {cardContent}
       </TouchableOpacity>
     );
   };
@@ -1124,6 +1160,38 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </Section>
         )}
 
+        {/* APUESTA PERSONALIZADA */}
+        {selectedMatch && (
+          <View style={{ marginBottom: 18 }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#1e293b',
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: '#334155',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+              onPress={() => setSmartBetMatch({
+                id: selectedMatch.id,
+                homeTeam: selectedMatch.homeTeam,
+                awayTeam: selectedMatch.awayTeam,
+                league: selectedMatch.league ?? 'Mundial 2026',
+              })}
+              activeOpacity={0.8}
+            >
+              <Text style={{ fontSize: 16 }}>🎰</Text>
+              <Text style={{ color: '#e2e8f0', fontWeight: '700', fontSize: 14 }}>
+                Crear apuesta personalizada
+              </Text>
+              <Text style={{ color: '#22c55e', fontSize: 14 }}>→</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* CONCLUSIÓN */}
         <Section icon="🎯" title="CONCLUSIÓN" delay={880}>
           <Text style={styles.bodyText}>{analysis.conclusion}</Text>
@@ -1257,6 +1325,14 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         data={quickBet}
         onClose={() => setQuickBet(null)}
         onSaved={() => setQuickBet(null)}
+      />
+
+      {/* Smart add bet modal */}
+      <SmartAddBetModal
+        visible={!!smartBetMatch}
+        matches={smartBetMatch ? [smartBetMatch] : []}
+        onClose={() => setSmartBetMatch(null)}
+        onSaved={() => setSmartBetMatch(null)}
       />
     </SafeAreaView>
   );

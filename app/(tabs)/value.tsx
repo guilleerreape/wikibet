@@ -442,7 +442,6 @@ export default function ValueScreen() {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>💰 Value Scanner</Text>
             <Text style={styles.subtitle}>Kelly · xG · Form · Todas las competiciones</Text>
           </View>
           <TouchableOpacity style={styles.guideBtn} onPress={() => setGuideVisible(true)}>
