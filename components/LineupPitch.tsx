@@ -109,71 +109,71 @@ export default function LineupPitch({
   const homeRowsDisplay = homeRowPlayers;
 
   return (
-    <AnimatedBorderPitch>
-      <View style={styles.pitchInner}>
-        {/* Pitch markings */}
-        <View style={styles.penaltyTop} />
-        <View style={styles.centerLine} />
-        <View style={styles.centerCircle} />
-        <View style={styles.penaltyBottom} />
-        {/* Center spot */}
-        <View style={styles.centerSpot} />
+    <View style={{ alignItems: 'center' }}>
+      <AnimatedBorderPitch>
+        <View style={styles.pitchInner}>
+          {/* Pitch markings */}
+          <View style={styles.penaltyTop} />
+          <View style={styles.centerLine} />
+          <View style={styles.centerCircle} />
+          <View style={styles.penaltyBottom} />
+          {/* Center spot */}
+          <View style={styles.centerSpot} />
 
-        {!noPlayers && (
-          <View style={{
-            position: 'absolute', top: '49%', left: 0, right: 0,
-            alignItems: 'center', zIndex: 2, marginTop: -9,
-          }}>
-            <View style={{
-              backgroundColor: lineupConfirmed ? 'rgba(21,128,61,0.93)' : 'rgba(30,58,95,0.93)',
-              paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5,
-              borderWidth: 1,
-              borderColor: lineupConfirmed ? '#22c55e60' : '#3b82f660',
-            }}>
-              <Text style={{ color: lineupConfirmed ? '#4ade80' : '#60a5fa', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }}>
-                {lineupConfirmed ? '✅ ALINEACIÓN CONFIRMADA' : '🤖 ALINEACIÓN PROBABLE'}
+          {noPlayers ? (
+            <View style={styles.pendingOverlay}>
+              <Text style={styles.pendingEmoji}>🤖</Text>
+              <Text style={styles.pendingText}>ALINEACIÓN{'\n'}PROBABLE</Text>
+              <Text style={styles.pendingSub}>
+                {isUpcoming ? 'IA · Datos de plantilla' : 'Cargando datos...'}
               </Text>
             </View>
-          </View>
-        )}
+          ) : (
+            <View style={styles.playersContainer}>
+              {/* Away team (top half) — red */}
+              <View style={styles.teamHalf}>
+                <Text style={[styles.teamLabel, { color: '#f87171' }]} numberOfLines={1}>{awayTeam}</Text>
+                {awayRowsDisplay.map((row, ri) => (
+                  <View key={`away-row-${ri}`} style={styles.playerRow}>
+                    {row.map((p, pi) => (
+                      <PlayerDot key={`away-${ri}-${pi}`} player={p} color="#dc2626" />
+                    ))}
+                  </View>
+                ))}
+              </View>
 
-        {noPlayers ? (
-          <View style={styles.pendingOverlay}>
-            <Text style={styles.pendingEmoji}>🤖</Text>
-            <Text style={styles.pendingText}>ALINEACIÓN{'\n'}PROBABLE</Text>
-            <Text style={styles.pendingSub}>
-              {isUpcoming ? 'IA · Datos de plantilla' : 'Cargando datos...'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.playersContainer}>
-            {/* Away team (top half) — red */}
-            <View style={styles.teamHalf}>
-              <Text style={[styles.teamLabel, { color: '#f87171' }]} numberOfLines={1}>{awayTeam}</Text>
-              {awayRowsDisplay.map((row, ri) => (
-                <View key={`away-row-${ri}`} style={styles.playerRow}>
-                  {row.map((p, pi) => (
-                    <PlayerDot key={`away-${ri}-${pi}`} player={p} color="#dc2626" />
-                  ))}
-                </View>
-              ))}
+              {/* Home team (bottom half) — blue */}
+              <View style={[styles.teamHalf, { flexDirection: 'column-reverse' }]}>
+                <Text style={[styles.teamLabel, { color: '#60a5fa' }]} numberOfLines={1}>{homeTeam}</Text>
+                {homeRowsDisplay.map((row, ri) => (
+                  <View key={`home-row-${ri}`} style={styles.playerRow}>
+                    {row.map((p, pi) => (
+                      <PlayerDot key={`home-${ri}-${pi}`} player={p} color="#2563eb" />
+                    ))}
+                  </View>
+                ))}
+              </View>
             </View>
+          )}
+        </View>
+      </AnimatedBorderPitch>
 
-            {/* Home team (bottom half) — blue */}
-            <View style={[styles.teamHalf, { flexDirection: 'column-reverse' }]}>
-              <Text style={[styles.teamLabel, { color: '#60a5fa' }]} numberOfLines={1}>{homeTeam}</Text>
-              {homeRowsDisplay.map((row, ri) => (
-                <View key={`home-row-${ri}`} style={styles.playerRow}>
-                  {row.map((p, pi) => (
-                    <PlayerDot key={`home-${ri}-${pi}`} player={p} color="#2563eb" />
-                  ))}
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
-      </View>
-    </AnimatedBorderPitch>
+      {/* Badge BELOW the pitch — never overlaps players or team names */}
+      {!noPlayers && (
+        <View style={{
+          marginTop: 5,
+          paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6,
+          backgroundColor: lineupConfirmed ? '#0f2a1a' : '#0f1b2d',
+          borderWidth: 1,
+          borderColor: lineupConfirmed ? '#22c55e60' : '#3b82f640',
+          flexDirection: 'row', alignItems: 'center', gap: 4,
+        }}>
+          <Text style={{ color: lineupConfirmed ? '#4ade80' : '#60a5fa', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 }}>
+            {lineupConfirmed ? '✅ ALINEACIÓN CONFIRMADA' : '🤖 ALINEACIÓN PROBABLE'}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 }
 

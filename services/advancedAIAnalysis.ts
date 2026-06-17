@@ -334,6 +334,8 @@ REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=$
 
 ⚠️ Tu conocimiento real prevalece sobre "REF. SISTEMA". Solo menciona jugadores de ${homeTeam} y ${awayTeam}.
 
+⚠️ resumenEjecutivo DEBE ser 100% único para este partido: cita forma reciente real, nombre del jugador diferencial, xG estimado. JAMÁS escribas frases como "duelo intenso", "estilos contrastados", "factor local determinante" — son frases genéricas prohibidas. Cada análisis debe ser irreconociblemente diferente del anterior.
+
 INSTRUCCIÓN APUESTAS: Elige 4-6 mercados de ALTA CONFIANZA en apuestasRecomendadas. Prefiere siempre: Over 0.5 goles si ambos equipos atacan, resultado claro si hay diferencia de calidad ≥3, BTTS si ambos meten más de 1.2 goles/partido. No pronostiques mercados dudosos.
 
 DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
@@ -351,8 +353,8 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
       "titulares": ["NombreReal1", "NombreReal2", "NombreReal3", "NombreReal4", "NombreReal5", "NombreReal6", "NombreReal7", "NombreReal8", "NombreReal9", "NombreReal10", "NombreReal11"]
     }
   },
-  "resumenEjecutivo": "3-4 frases específicas sobre el partido, contexto y pronóstico clave",
-  "importanciaDelPartido": "qué se juegan ambos equipos en esta competición",
+  "resumenEjecutivo": "OBLIGATORIO: 3-4 frases 100% ÚNICAS para este partido. INCLUYE: forma reciente exacta de cada equipo, el jugador diferencial de cada lado con sus estadísticas, y el pronóstico cuantitativo (xG estimado, % victoria). PROHIBIDO frases genéricas como 'duelo intenso', 'estilos contrastados' o 'factor local decisivo'. Cada frase debe ser específica de ${homeTeam} vs ${awayTeam} hoy.",
+  "importanciaDelPartido": "Qué se juegan EXACTAMENTE ${homeTeam} y ${awayTeam} en esta competición: puntos en la tabla, clasificación en juego, consecuencias reales de ganar/perder/empatar.",
   "historialDirecto": {
     "totalPartidos": 0,
     "victoriasLocal": 0,
@@ -626,8 +628,19 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     };
 
     return {
-      resumenEjecutivo: `${homeTeam} recibe a ${awayTeam} en un partido decisivo del ${league}. Ambas selecciones se juegan puntos clave en la clasificación. El duelo promete ser intenso con dos estilos de juego contrastados. El factor local y la motivación de ambos equipos serán determinantes.`,
-      importanciaDelPartido: `Victoria crucial para ${homeTeam} para consolidar su posición. ${awayTeam} necesita al menos un empate para no quedarse descolgado en la tabla.`,
+      resumenEjecutivo: [
+        homeTopScorer
+          ? `${homeTeam} presenta a ${homeTopScorer.name} como ariete principal (${homeTopScorer.goals} goles en el torneo) ante un ${awayTeam} que llega con ${awayTopScorer ? awayTopScorer.name + ' como amenaza ofensiva' : 'su bloque defensivo como referencia'}.`
+          : `${homeTeam} afronta este duelo del ${league} contra ${awayTeam} con el peso de la localía.`,
+        homeFormStr !== 'N/D'
+          ? `Forma reciente de ${homeTeam}: ${homeFormStr.split(' | ')[0]}.`
+          : '',
+        awayFormStr !== 'N/D'
+          ? `${awayTeam} llega con: ${awayFormStr.split(' | ')[0]}.`
+          : '',
+        `xG estimado: ${homeTeamData ? homeTeamData.avgGoals.toFixed(1) : '~1.5'} (local) vs ${awayTeamData ? awayTeamData.avgGoals.toFixed(1) : '~1.0'} (visitante). Probabilidad victoria local: ~${homeTeamData && awayTeamData ? Math.round(homeTeamData.winRate) : 50}%.`,
+      ].filter(Boolean).join(' '),
+      importanciaDelPartido: `${homeTeam} busca los 3 puntos para mantenerse en la parte alta del ${league}. Para ${awayTeam}, cualquier resultado sin derrota es positivo de cara a la clasificación.`,
       historialDirecto: {
         totalPartidos: Math.floor(Math.random() * 12) + 8,
         victoriasLocal: Math.floor(Math.random() * 6) + 2,
