@@ -336,24 +336,22 @@ export default function ApuestasScreen() {
     <SafeAreaView style={st.root}>
       <ScrollView contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ─── Animated header banner ─── */}
+        {/* ─── Stats banner ─── */}
         <View style={{
-          paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10,
+          paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
           borderBottomWidth: 1, borderBottomColor: '#1f2937',
           backgroundColor: '#0a1628',
           marginHorizontal: -14, marginTop: -14, marginBottom: 14,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View>
-              <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', letterSpacing: 0.5 }}>
-                📒 MIS APUESTAS
-              </Text>
-              <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff', marginTop: 2 }}>
+              <Text style={{ fontSize: 20, fontWeight: '900', color: '#fff' }}>
                 {stats.totalBets > 0 ? `${stats.totalBets} apuesta${stats.totalBets !== 1 ? 's' : ''}` : 'Sin apuestas aún'}
               </Text>
+              <Text style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>registradas en total</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 11, color: '#6b7280' }}>Balance total</Text>
+              <Text style={{ fontSize: 10, color: '#6b7280' }}>Balance total</Text>
               <Text style={{
                 fontSize: 22, fontWeight: '900',
                 color: stats.totalProfit >= 0 ? '#22c55e' : '#ef4444',

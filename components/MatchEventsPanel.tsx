@@ -105,6 +105,24 @@ function UpcomingReadyPanel({ homeTeam, awayTeam, matchDate }: { homeTeam: strin
   );
 }
 
+function HalftimeBanner() {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 800, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 800, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+  const bg = anim.interpolate({ inputRange: [0, 1], outputRange: ['#1f2937', '#1e3a1e'] });
+  return (
+    <Animated.View style={[styles.halftimeBanner, { backgroundColor: bg }]}>
+      <Text style={styles.halftimeText}>⏸️ DESCANSO</Text>
+    </Animated.View>
+  );
+}
+
 export default function MatchEventsPanel({
   homeTeam,
   awayTeam,
@@ -117,6 +135,10 @@ export default function MatchEventsPanel({
 }: MatchEventsPanelProps) {
   const displayEvents = events.length > 0 ? events : estimatedEvents;
   const isEstimated = events.length === 0 && estimatedEvents.length > 0;
+
+  // Detect halftime: live match where elapsed time is ~45-48 min
+  const elapsedMin = status === 'live' ? computeLiveMinute(matchDate) : 0;
+  const isHalftime = status === 'live' && elapsedMin >= 45 && elapsedMin <= 50;
 
   // For upcoming matches, show a special "ready" panel
   if (status === 'upcoming') {
@@ -145,8 +167,9 @@ export default function MatchEventsPanel({
         <Text style={[styles.teamNameText, { textAlign: 'right' }]} numberOfLines={2}>{awayTeam}</Text>
       </View>
 
-      {/* Live minute */}
-      {status === 'live' && (
+      {/* Live minute / Halftime */}
+      {status === 'live' && isHalftime && <HalftimeBanner />}
+      {status === 'live' && !isHalftime && (
         <LiveMinuteBadge matchDate={matchDate} />
       )}
 
@@ -165,16 +188,34 @@ export default function MatchEventsPanel({
         </View>
       ) : (
         <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
-          {displayEvents.map((ev, i) => (
-            <View key={i} style={[styles.eventRow, ev.type === 'goal' && styles.eventRowGoal]}>
-              <Text style={styles.eventMinute}>{ev.minute}'</Text>
-              <Text style={styles.eventIcon}>{getEventIcon(ev.type)}</Text>
-              <View style={styles.eventPlayerWrap}>
-                <Text style={styles.eventPlayer} numberOfLines={1}>{ev.player}</Text>
+          {displayEvents.map((ev, i) => {
+            const isSub = ev.type === 'sub';
+            const parts = isSub && ev.detail ? ev.detail.split('→') : null;
+            const rowStyle = [
+              styles.eventRow,
+              ev.type === 'goal' && styles.eventRowGoal,
+              ev.type === 'yellow' && styles.eventRowYellow,
+              ev.type === 'red' && styles.eventRowRed,
+            ];
+            return (
+              <View key={i} style={rowStyle}>
+                <Text style={styles.eventMinute}>{ev.minute}'</Text>
+                <Text style={styles.eventIcon}>{getEventIcon(ev.type)}</Text>
+                <View style={styles.eventPlayerWrap}>
+                  <Text style={styles.eventPlayer} numberOfLines={1}>{ev.player}</Text>
+                  {isSub && parts && parts.length === 2 && (
+                    <Text style={styles.eventSub} numberOfLines={1}>
+                      ↓{parts[0].trim()} ↑{parts[1].trim()}
+                    </Text>
+                  )}
+                  {!isSub && ev.detail && (
+                    <Text style={styles.eventDetail} numberOfLines={1}>{ev.detail}</Text>
+                  )}
+                </View>
+                <View style={[styles.teamDot, { backgroundColor: ev.team === 'home' ? '#3b82f6' : '#ef4444' }]} />
               </View>
-              <View style={[styles.teamDot, { backgroundColor: ev.team === 'home' ? '#3b82f6' : '#ef4444' }]} />
-            </View>
-          ))}
+            );
+          })}
         </ScrollView>
       )}
     </>
@@ -344,6 +385,40 @@ const styles = StyleSheet.create({
   },
   eventRowGoal: {
     backgroundColor: '#0a1f0a',
+  },
+  eventRowYellow: {
+    backgroundColor: '#1a1500',
+  },
+  eventRowRed: {
+    backgroundColor: '#1a0a0a',
+  },
+  halftimeBanner: {
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#22c55e40',
+  },
+  halftimeText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  eventSub: {
+    color: '#60a5fa',
+    fontSize: 8,
+    fontStyle: 'italic',
+    marginTop: 1,
+  },
+  eventDetail: {
+    color: '#6b7280',
+    fontSize: 8,
+    fontStyle: 'italic',
+    marginTop: 1,
   },
   eventMinute: {
     color: '#6b7280',

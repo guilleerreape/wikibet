@@ -439,19 +439,8 @@ export default function ValueScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.subtitle}>Kelly · xG · Form · Todas las competiciones</Text>
-          </View>
-          <TouchableOpacity style={styles.guideBtn} onPress={() => setGuideVisible(true)}>
-            <Text style={styles.guideBtnText}>📚 Guía</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
       {/* Stats bar */}
-      <View style={styles.statsBar}>
+      <View style={[styles.statsBar, { paddingRight: 8 }]}>
         <View style={styles.stat}><Text style={styles.statVal}>{stats.total}</Text><Text style={styles.statLabel}>Picks</Text></View>
         <View style={styles.statDiv} />
         <View style={styles.stat}><Text style={[styles.statVal, { color: '#22c55e' }]}>{stats.alta}</Text><Text style={styles.statLabel}>Alta conf.</Text></View>
@@ -459,6 +448,10 @@ export default function ValueScreen() {
         <View style={styles.stat}><Text style={[styles.statVal, { color: '#f59e0b' }]}>+{stats.avgValue}%</Text><Text style={styles.statLabel}>Value medio</Text></View>
         <View style={styles.statDiv} />
         <View style={styles.stat}><Text style={[styles.statVal, { color: '#ef4444' }]}>+{stats.topValue}%</Text><Text style={styles.statLabel}>Top value</Text></View>
+        <View style={styles.statDiv} />
+        <TouchableOpacity style={styles.guideBtn} onPress={() => setGuideVisible(true)}>
+          <Text style={styles.guideBtnText}>📚</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.chips}>

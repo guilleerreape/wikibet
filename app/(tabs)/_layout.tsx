@@ -28,15 +28,89 @@ function AnimatedWikiTitle() {
     outputRange: ['#22c55e', '#f59e0b', '#22c55e'],
   });
 
+  const tagAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(tagAnim, { toValue: 1, duration: 3000, useNativeDriver: false }),
+        Animated.timing(tagAnim, { toValue: 0, duration: 3000, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+  const tagColor = tagAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#374151', '#6b7280'],
+  });
+
   return (
-    <View style={at.wrap}>
-      <Animated.Text style={[at.text, { color }]}>⚽ WikiBet</Animated.Text>
-      <View style={at.dot} />
+    <View style={at.col}>
+      <View style={at.wrap}>
+        <Animated.Text style={[at.text, { color }]}>⚽ WikiBet</Animated.Text>
+        <View style={at.dot} />
+      </View>
+      <Animated.Text style={[at.tagline, { color: tagColor }]}>
+        IA · Análisis · Pronósticos · Mundial 2026
+      </Animated.Text>
     </View>
   );
 }
 
+// ─── Neon header reactivo para tabs ──────────────────────────────────────────
+function NeonTabHeader({
+  emoji, title, subtitle,
+  neonColors,
+}: {
+  emoji: string; title: string; subtitle?: string;
+  neonColors: [string, string, string];
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const float = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1800, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 1800, useNativeDriver: false }),
+      ])
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, { toValue: -2, duration: 1100, useNativeDriver: true }),
+        Animated.timing(float, { toValue: 2, duration: 1100, useNativeDriver: true }),
+      ])
+    ).start();
+    return () => { anim.stopAnimation(); float.stopAnimation(); };
+  }, []);
+
+  const color = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [neonColors[0], neonColors[1], neonColors[2]],
+  });
+  const emojiScale = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 1.12, 1] });
+
+  return (
+    <View style={nh.wrap}>
+      <Animated.Text style={[nh.emoji, { transform: [{ scale: emojiScale }, { translateY: float }] }]}>
+        {emoji}
+      </Animated.Text>
+      <View style={nh.textCol}>
+        <Animated.Text style={[nh.title, { color }]}>{title}</Animated.Text>
+        {subtitle ? <Text style={nh.subtitle}>{subtitle}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+const nh = StyleSheet.create({
+  wrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  emoji: { fontSize: 19 },
+  textCol: { flexDirection: 'column' },
+  title: { fontSize: 16, fontWeight: '900', letterSpacing: 0.4 },
+  subtitle: { fontSize: 9, color: '#6b7280', fontWeight: '600', letterSpacing: 0.3, marginTop: 1 },
+});
+
 const at = StyleSheet.create({
+  col: { flexDirection: 'column', alignItems: 'flex-start' },
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   text: { fontSize: 19, fontWeight: '900', letterSpacing: 0.3 },
   dot: {
@@ -44,6 +118,7 @@ const at = StyleSheet.create({
     backgroundColor: '#ef4444',
     marginTop: 2,
   },
+  tagline: { fontSize: 8, fontWeight: '600', letterSpacing: 0.4, marginTop: 1 },
 });
 
 // ─── TabIcon — emoji + label + green dot + optional AI ring ──────────────────
@@ -394,7 +469,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           headerTitle: () => <AnimatedWikiTitle />,
-          headerTitleAlign: 'center',
+          headerTitleAlign: 'left',
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="📊" label="Partidos" focused={focused} />,
         }}
@@ -402,7 +477,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="value"
         options={{
-          title: '💰 Value Bets',
+          headerTitle: () => (
+            <NeonTabHeader
+              emoji="💰"
+              title="VALUE BETS"
+              subtitle="Kelly · xG · Probabilidades reales"
+              neonColors={['#22c55e', '#4ade80', '#22c55e']}
+            />
+          ),
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Value" focused={focused} />,
         }}
@@ -410,7 +492,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="ia"
         options={{
-          title: '🤖 Chat IA',
+          headerTitle: () => (
+            <NeonTabHeader
+              emoji="🤖"
+              title="CHAT IA"
+              subtitle="Análisis · Predicciones · Estrategia"
+              neonColors={['#60a5fa', '#a78bfa', '#60a5fa']}
+            />
+          ),
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="🤖" label="IA" focused={focused} isAI />,
         }}
@@ -418,7 +507,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="apuestas"
         options={{
-          title: '📒 Mis Apuestas',
+          headerTitle: () => (
+            <NeonTabHeader
+              emoji="📒"
+              title="MIS APUESTAS"
+              subtitle="Bankroll · ROI · Historial"
+              neonColors={['#f59e0b', '#fbbf24', '#f59e0b']}
+            />
+          ),
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="📒" label="Apuestas" focused={focused} />,
         }}
@@ -426,7 +522,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="noticias"
         options={{
-          title: '📰 Noticias',
+          headerTitle: () => (
+            <NeonTabHeader
+              emoji="📰"
+              title="NOTICIAS"
+              subtitle="Lesiones · Fichajes · Análisis IA"
+              neonColors={['#38bdf8', '#7dd3fc', '#38bdf8']}
+            />
+          ),
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="📰" label="Noticias" focused={focused} />,
         }}

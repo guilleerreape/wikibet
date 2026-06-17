@@ -208,37 +208,31 @@ export default function NoticiasScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={{
-        paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10,
+        paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8,
         borderBottomWidth: 1, borderBottomColor: '#1f2937',
         backgroundColor: '#0a1628',
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', letterSpacing: 0.5 }}>
-              📰 NOTICIAS
+        <Text style={{ fontSize: 11, color: '#4b5563', fontWeight: '600' }}>
+          {allNews.length} noticias · Mundial 2026
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {lastUpdated && (
+            <Text style={{ fontSize: 9, color: '#6b7280' }}>
+              🔄 {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
             </Text>
-            <Text style={{ fontSize: 13, color: '#d1d5db', marginTop: 2 }}>
-              Impacto en apuestas · Lesiones · Análisis
-            </Text>
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
+            <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700' }}>EN VIVO</Text>
           </View>
-          <View style={{ alignItems: 'flex-end', gap: 4 }}>
-            {lastUpdated && (
-              <Text style={{ fontSize: 9, color: '#6b7280' }}>
-                🔄 {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+          {allNews.filter(n => n.impact === 'HIGH').length > 0 && (
+            <View style={{ backgroundColor: '#7f1d1d', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 9, color: '#fca5a5', fontWeight: '700' }}>
+                🔴 {allNews.filter(n => n.impact === 'HIGH').length} URG.
               </Text>
-            )}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#22c55e' }} />
-              <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700' }}>EN VIVO</Text>
             </View>
-            {allNews.filter(n => n.impact === 'HIGH').length > 0 && (
-              <View style={{ backgroundColor: '#7f1d1d', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
-                <Text style={{ fontSize: 9, color: '#fca5a5', fontWeight: '700' }}>
-                  🔴 {allNews.filter(n => n.impact === 'HIGH').length} URGENTES
-                </Text>
-              </View>
-            )}
-          </View>
+          )}
         </View>
       </View>
 

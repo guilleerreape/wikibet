@@ -23,6 +23,7 @@ import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
 import { sportsDbService } from '@/services/sportsDbService';
+import { getWcSquad } from '@/services/wcSquads';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
@@ -94,6 +95,66 @@ function getTodayStart(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+// ─── Header animado "PARTIDOS" ────────────────────────────────────────────────
+function PartidosHeader({ count, showPast }: { count: number; showPast: boolean }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 2200, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 2200, useNativeDriver: false }),
+      ])
+    ).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.06, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+    return () => { anim.stopAnimation(); pulse.stopAnimation(); };
+  }, []);
+
+  const color = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#22c55e', '#f59e0b', '#22c55e'],
+  });
+  const glowColor = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#22c55e40', '#f59e0b40', '#22c55e40'],
+  });
+
+  return (
+    <Animated.View style={[{
+      paddingHorizontal: 16, paddingVertical: 10,
+      borderBottomWidth: 1, borderBottomColor: '#1f2937',
+      backgroundColor: '#060d18',
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    }, { backgroundColor: glowColor }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Animated.Text style={{ fontSize: 22, transform: [{ scale: pulse }] }}>📊</Animated.Text>
+        <View>
+          <Animated.Text style={{ fontSize: 18, fontWeight: '900', letterSpacing: 0.5, color }}>
+            PARTIDOS
+          </Animated.Text>
+          <Text style={{ fontSize: 9, color: '#4b5563', fontWeight: '600', marginTop: 1 }}>
+            Mundial 2026 · Fase de Grupos
+          </Text>
+        </View>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Animated.Text style={{ fontSize: 20, fontWeight: '900', color }}>
+          {count}
+        </Animated.Text>
+        <Text style={{ fontSize: 9, color: '#4b5563', fontWeight: '600' }}>
+          {showPast ? 'total' : 'próximos'}
+        </Text>
+      </View>
+    </Animated.View>
+  );
 }
 
 // ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
@@ -1095,11 +1156,11 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         .filter(p => p.name.length > 2 && !GENERIC_RE.test(p.name));
     }
 
-    // ── PRIMARY: TheSportsDB squad (always available for known teams) ──
+    // ── PRIMARY: TheSportsDB squad (real-time API) ──
     let homePlayers = buildFromSquad(sdbCtx?.homeSquad ?? []);
     let awayPlayers = buildFromSquad(sdbCtx?.awaySquad ?? []);
 
-    // ── SECONDARY: AI names (only if squad unavailable or very thin) ──
+    // ── SECONDARY: AI names (only if API squad is thin) ──
     if (homePlayers.length < 8) {
       const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
       if (aiHome.length > homePlayers.length) homePlayers = aiHome;
@@ -1107,6 +1168,16 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     if (awayPlayers.length < 8) {
       const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
       if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
+    }
+
+    // ── TERTIARY: Hardcoded WC 2026 squads (guaranteed fallback) ──
+    if (homePlayers.length < 5) {
+      const wcHome = buildFromSquad(getWcSquad(homeTeam));
+      if (wcHome.length > homePlayers.length) homePlayers = wcHome;
+    }
+    if (awayPlayers.length < 5) {
+      const wcAway = buildFromSquad(getWcSquad(awayTeam));
+      if (wcAway.length > awayPlayers.length) awayPlayers = wcAway;
     }
 
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
@@ -1662,12 +1733,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Partidos</Text>
-        <Text style={styles.subtitle}>
-          {filtered.length} partidos{showPast ? ' (todos)' : ' · hoy en adelante'}
-        </Text>
-      </View>
+      <PartidosHeader count={filtered.length} showPast={showPast} />
 
       {/* Competiciones */}
       <ScrollView
