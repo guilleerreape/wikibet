@@ -77,6 +77,10 @@ export default function TabsLayout() {
         options={{ title: '🤖 IA Deportiva', tabBarLabel: '🤖 IA' }}
       />
       <Tabs.Screen
+        name="apuestas"
+        options={{ title: '📒 Mis Apuestas', tabBarLabel: '📒 Apuestas' }}
+      />
+      <Tabs.Screen
         name="noticias"
         options={{ title: '📰 Noticias', tabBarLabel: '📰 Noticias' }}
       />
