@@ -1,11 +1,47 @@
 import { Tabs } from 'expo-router';
-import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking } from 'react-native';
-import { useState } from 'react';
+import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking, Animated } from 'react-native';
+import { useState, useRef, useEffect } from 'react';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
 
 const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
+
+// ─── Título animado "⚽ WikiBet" ──────────────────────────────────────────────
+function AnimatedWikiTitle() {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 2800, useNativeDriver: false }),
+        Animated.timing(anim, { toValue: 0, duration: 2800, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+
+  const color = anim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#22c55e', '#f59e0b', '#22c55e'],
+  });
+
+  return (
+    <View style={at.wrap}>
+      <Animated.Text style={[at.text, { color }]}>⚽ WikiBet</Animated.Text>
+      <View style={at.dot} />
+    </View>
+  );
+}
+
+const at = StyleSheet.create({
+  wrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  text: { fontSize: 19, fontWeight: '900', letterSpacing: 0.3 },
+  dot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: '#ef4444',
+    marginTop: 2,
+  },
+});
 
 // ─── Menú desplegable de perfil ───────────────────────────────────────────────
 function ProfileMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
@@ -152,7 +188,8 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: true,
         headerStyle: { backgroundColor: colors.bg.card },
-        headerTitleStyle: { color: colors.text.primary, fontWeight: '700', fontSize: 18 },
+        headerTitleStyle: { color: colors.text.primary, fontWeight: '700', fontSize: 17 },
+        headerTitleAlign: 'center',
         headerTintColor: colors.accent.green,
         headerRight: () => (
           <View style={s.headerRight}>
@@ -171,11 +208,18 @@ export default function TabsLayout() {
         tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
       }}
     >
-      <Tabs.Screen name="index"    options={{ title: '⚽ WikiBet',       tabBarLabel: '📊 Partidos' }} />
-      <Tabs.Screen name="value"    options={{ title: '💰 Value Bets',    tabBarLabel: '💰 Value' }} />
-      <Tabs.Screen name="ia"       options={{ title: '🤖 IA Deportiva',  tabBarLabel: '🤖 IA' }} />
-      <Tabs.Screen name="apuestas" options={{ title: '📒 Mis Apuestas',  tabBarLabel: '📒 Apuestas' }} />
-      <Tabs.Screen name="noticias" options={{ title: '📰 Noticias',      tabBarLabel: '📰 Noticias' }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          headerTitle: () => <AnimatedWikiTitle />,
+          headerTitleAlign: 'center',
+          tabBarLabel: '📊 Partidos',
+        }}
+      />
+      <Tabs.Screen name="value"    options={{ title: '💰 Value Bets',   tabBarLabel: '💰 Value' }} />
+      <Tabs.Screen name="ia"       options={{ title: '🤖 Chat IA',      tabBarLabel: '🤖 IA' }} />
+      <Tabs.Screen name="apuestas" options={{ title: '📒 Mis Apuestas', tabBarLabel: '📒 Apuestas' }} />
+      <Tabs.Screen name="noticias" options={{ title: '📰 Noticias',     tabBarLabel: '📰 Noticias' }} />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
     </Tabs>

@@ -29,12 +29,15 @@ interface AINewsAnalysis {
 async function analyzeNewsWithAI(news: RealNews[]): Promise<AINewsAnalysis | null> {
   if (!CLAUDE_API_KEY) return null;
 
-  const topNews = news.filter(n => n.impact === 'HIGH').slice(0, 3);
+  const topNews = news.filter(n => n.impact === 'HIGH').slice(0, 4);
   if (topNews.length === 0) return null;
 
+  const today = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  });
   const newsText = topNews
-    .map((n, i) => `Noticia ${i + 1}: "${n.title}" — ${n.description}`)
-    .join('\n');
+    .map((n, i) => `Noticia ${i + 1}: "${n.title}" — ${n.description} | Impacto en apuestas: ${n.bettingImpact}`)
+    .join('\n\n');
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 14000);
@@ -51,22 +54,35 @@ async function analyzeNewsWithAI(news: RealNews[]): Promise<AINewsAnalysis | nul
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
+        max_tokens: 900,
         messages: [{
           role: 'user',
-          content: `Eres un analista de apuestas deportivas experto. Analiza estas noticias del Mundial 2026 en ESPAÑOL y explica su impacto en las apuestas. Responde en JSON estricto con esta estructura exacta:
+          content: `Eres el mejor analista de apuestas deportivas del mundo. Hoy es ${today}, Mundial 2026 en plena fase de grupos.
+
+Analiza estas noticias ACTUALES y dame un análisis PROSPECTIVO (hacia el futuro, no el pasado) en ESPAÑOL sobre:
+- Posibles bajas por lesión/molestias que afecten los PRÓXIMOS partidos
+- Posibles formaciones y cambios tácticos esperados
+- Qué mercados de apuestas tienen valor por estas novedades
+- Cambios esperados en cuotas por estas informaciones
+- La apuesta con más valor para HOY o MAÑANA
+
+Responde en JSON estricto:
 {
-  "resumen": "Resumen general en 1-2 frases",
+  "resumen": "Resumen prospectivo en 2 frases sobre qué esperar en los próximos partidos",
   "comentarios": [
-    {"noticia": "título corto", "analisis": "análisis en 2 frases", "impactoApuesta": "qué apuestas se ven afectadas"}
+    {
+      "noticia": "título corto",
+      "analisis": "análisis en 2 frases mirando hacia adelante: qué puede cambiar en los próximos partidos",
+      "impactoApuesta": "mercados concretos que se ven afectados y cómo apostar"
+    }
   ],
-  "conclusion": "Conclusión con la apuesta más recomendada basada en estas noticias"
+  "conclusion": "LA apuesta con más valor para hoy/mañana basada en estas noticias, con razonamiento"
 }
 
-NOTICIAS:
+NOTICIAS DE HOY:
 ${newsText}
 
-IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`,
+IMPORTANTE: Responde SOLO con el JSON. Enfócate en lo que está POR VENIR, no en resultados ya conocidos.`,
         }],
       }),
     });
@@ -85,16 +101,21 @@ IMPORTANTE: Responde SOLO con el JSON, sin texto adicional.`,
 
 function getLocalAIAnalysis(news: RealNews[]): AINewsAnalysis {
   const topNews = news.filter(n => n.impact === 'HIGH').slice(0, 3);
+  const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
   return {
-    resumen: 'Análisis basado en las noticias de mayor impacto del Mundial 2026. Varias lesiones y novedades tácticas pueden alterar los pronósticos.',
+    resumen: `Análisis prospectivo para ${today}: Las noticias de hoy apuntan a varios factores que moverán las cuotas en los próximos partidos. Lesiones y cambios tácticos de última hora son los elementos clave a vigilar.`,
     comentarios: topNews.map(n => ({
       noticia: n.title,
-      analisis: `${n.bettingImpact} Esta novedad puede cambiar las probabilidades del partido relacionado.`,
-      impactoApuesta: n.category === 'injury' ? 'Cuotas de victoria y Over/Under afectadas' :
-        n.category === 'suspension' ? 'Mercado de resultados alterado por baja clave' :
-          'Mercado de goles puede verse afectado',
+      analisis: `${n.bettingImpact} Esto puede cambiar significativamente las probabilidades de los próximos encuentros de estos equipos.`,
+      impactoApuesta: n.category === 'injury'
+        ? 'Cuotas de victoria y Over/Under afectadas — valor en el rival si la baja es titular'
+        : n.category === 'suspension'
+        ? 'Mercado 1X2 alterado — busca valor en el equipo con el once completo'
+        : n.category === 'tactical'
+        ? 'Atención al mercado de goles — formaciones ofensivas inflan el Over'
+        : 'Mercado de goles y resultado directo pueden tener valor',
     })),
-    conclusion: 'Revisa las cuotas en tiempo real antes de apostar. Las lesiones de últimas horas son el factor de mayor impacto esta jornada.',
+    conclusion: 'APUESTA DEL DÍA: Revisa las cuotas en tiempo real antes de cada partido. Las bajas confirmadas en las últimas 2 horas antes del partido son el mayor movedor de mercado. Busca Over/Under y handicap asiático cuando haya bajas de delanteros clave.',
   };
 }
 
@@ -106,17 +127,20 @@ export default function NoticiasScreen() {
   const [aiAnalysis, setAiAnalysis] = useState<AINewsAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
   const fetchNews = useCallback(async () => {
     realNewsService.invalidateCache();
     const data = await realNewsService.getNews();
     setAllNews(data);
+    setLastUpdated(new Date());
     setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchNews();
-    // Auto-refresh cada 60 segundos
-    const interval = setInterval(fetchNews, 60 * 1000);
+    // Auto-refresh cada 5 minutos
+    const interval = setInterval(fetchNews, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchNews]);
 
@@ -154,8 +178,11 @@ export default function NoticiasScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Noticias Mundial 2026</Text>
-        <Text style={styles.subtitle}>Impacto en apuestas · Lesiones · Suspensiones</Text>
+        <Text style={styles.title}>Noticias</Text>
+        <Text style={styles.subtitle}>
+          Impacto en apuestas · Lesiones · Análisis
+          {lastUpdated ? `  ·  🔄 ${lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}
+        </Text>
       </View>
 
       <View style={styles.filterRow}>

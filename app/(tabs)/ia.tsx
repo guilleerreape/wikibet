@@ -236,10 +236,10 @@ export default function IAScreen() {
                 Analista experto con datos en tiempo real del Mundial 2026 y ligas europeas
               </Text>
 
-              {/* Badge resultado del día */}
+              {/* Badge live mundial */}
               <View style={styles.latestResultBadge}>
                 <Text style={styles.latestResultText}>
-                  🔥 Último: 🇦🇷 Argentina 3-0 🇩🇿 Argelia — Messi HAT-TRICK
+                  🔴 EN DIRECTO · Mundial 2026 · {new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
                 </Text>
               </View>
 

@@ -5,12 +5,14 @@ import { colors } from '@/constants/colors';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import LoginModal from '@/components/LoginModal';
 import UpgradeModal from '@/components/UpgradeModal';
+import WelcomeModal from '@/components/WelcomeModal';
 import LandingScreen from '@/components/LandingScreen';
 
 function Modals() {
   const {
     showLoginModal, setShowLoginModal,
     showUpgradeModal, setShowUpgradeModal,
+    showWelcomeModal, setShowWelcomeModal,
     upgradeReason,
   } = useAuth();
   return (
@@ -20,6 +22,10 @@ function Modals() {
         visible={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
         reason={upgradeReason}
+      />
+      <WelcomeModal
+        visible={showWelcomeModal}
+        onClose={() => setShowWelcomeModal(false)}
       />
     </>
   );

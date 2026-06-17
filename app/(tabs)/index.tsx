@@ -176,12 +176,14 @@ function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: Ad
 }
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children, accent }: { icon: string; title: string; children: React.ReactNode; accent?: string }) {
   return (
-    <View style={styles.section}>
+    <View style={[styles.section, accent ? { borderLeftColor: accent, borderLeftWidth: 3, paddingLeft: 10 } : null]}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionIcon}>{icon}</Text>
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <View style={[styles.sectionIconWrap, { backgroundColor: (accent || colors.accent.green) + '20' }]}>
+          <Text style={styles.sectionIcon}>{icon}</Text>
+        </View>
+        <Text style={[styles.sectionTitle, { color: accent || colors.text.primary }]}>{title}</Text>
       </View>
       {children}
     </View>
@@ -781,13 +783,18 @@ export default function MatchesScreen() {
 
         {/* APUESTAS CON VALOR */}
         {analysis.apuestasRecomendadas?.length > 0 && (
-          <Section icon="💰" title="APUESTAS CON VALOR">
+          <Section icon="💰" title="APUESTAS CON VALOR" accent={colors.accent.gold}>
             {analysis.apuestasRecomendadas.slice(0, 3).map((bet, i) => (
-              <View key={i} style={styles.betCard}>
+              <View key={i} style={[styles.betCard, i === 0 && styles.betCardTop]}>
+                {i === 0 && (
+                  <View style={styles.topPickBadge}>
+                    <Text style={styles.topPickText}>⭐ TOP PICK</Text>
+                  </View>
+                )}
                 <View style={styles.betHead}>
                   <Text style={styles.betMarket}>{bet.mercado}</Text>
                   <View style={[styles.betValBadge, { backgroundColor: bet.valor >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
-                    <Text style={styles.betValText}>{bet.valor >= 0 ? '+' : ''}{(bet.valor * 100).toFixed(1)}%</Text>
+                    <Text style={styles.betValText}>{bet.valor >= 0 ? '+' : ''}{(bet.valor * 100).toFixed(1)}% value</Text>
                   </View>
                   <View style={[styles.riskBadge, {
                     backgroundColor: bet.riesgo === 'bajo' ? '#22c55e30' : bet.riesgo === 'medio' ? colors.accent.gold + '30' : colors.accent.red + '30'
@@ -797,15 +804,27 @@ export default function MatchesScreen() {
                     }]}>{bet.riesgo}</Text>
                   </View>
                 </View>
-                <Text style={styles.betSel}>{bet.seleccion}</Text>
+                <Text style={[styles.betSel, i === 0 && { fontSize: 15, color: '#fff' }]}>{bet.seleccion}</Text>
                 <View style={styles.betStats}>
-                  <Text style={styles.betStat}>Cuota: <Text style={{ color: colors.accent.gold, fontWeight: 'bold' }}>{bet.cuota.toFixed(2)}</Text></Text>
-                  <Text style={styles.betStat}>Prob: <Text style={{ color: colors.accent.green, fontWeight: 'bold' }}>{bet.probabilidad}%</Text></Text>
+                  <View style={styles.betOddsBox}>
+                    <Text style={styles.betOddsVal}>{bet.cuota.toFixed(2)}</Text>
+                    <Text style={styles.betOddsLbl}>Cuota</Text>
+                  </View>
+                  <View style={styles.betProbBox}>
+                    <Text style={styles.betProbVal}>{bet.probabilidad}%</Text>
+                    <Text style={styles.betProbLbl}>Prob. IA</Text>
+                  </View>
+                  <View style={styles.betValueBox}>
+                    <Text style={[styles.betProbVal, { color: bet.valor >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
+                      {bet.valor >= 0 ? '+' : ''}{(bet.valor * 100).toFixed(0)}%
+                    </Text>
+                    <Text style={styles.betProbLbl}>Value</Text>
+                  </View>
                 </View>
                 <Text style={styles.betRazon}>{bet.razonamiento}</Text>
                 {/* Botón añadir apuesta rápida */}
                 <TouchableOpacity
-                  style={styles.quickBetBtn}
+                  style={[styles.quickBetBtn, i === 0 && styles.quickBetBtnTop]}
                   onPress={() => setQuickBet({
                     match:  `${selectedMatch!.homeTeam} vs ${selectedMatch!.awayTeam}`,
                     league: selectedMatch!.league ?? 'Mundial 2026',
@@ -814,7 +833,9 @@ export default function MatchesScreen() {
                   })}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.quickBetBtnText}>📥 Añadir apuesta</Text>
+                  <Text style={[styles.quickBetBtnText, i === 0 && { color: '#000' }]}>
+                    📥 Añadir apuesta
+                  </Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -1065,8 +1086,12 @@ const styles = StyleSheet.create({
   modalScroll: { flex: 1, padding: 14 },
   // Section
   section: { marginBottom: 18 },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  sectionIcon: { fontSize: 16 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  sectionIconWrap: {
+    width: 26, height: 26, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sectionIcon: { fontSize: 14 },
   sectionTitle: {
     fontSize: 11, fontWeight: '900', color: colors.text.primary,
     textTransform: 'uppercase', letterSpacing: 0.8, flex: 1,
@@ -1154,23 +1179,52 @@ const styles = StyleSheet.create({
   marketVal: { fontSize: 14, fontWeight: 'bold', marginTop: 2 },
   // Bets
   betCard: {
-    backgroundColor: colors.bg.primary, borderRadius: 8, padding: 10,
-    marginBottom: 8, borderWidth: 1, borderColor: colors.border.subtle,
+    backgroundColor: colors.bg.primary, borderRadius: 10, padding: 12,
+    marginBottom: 10, borderWidth: 1, borderColor: colors.border.subtle,
   },
-  betHead: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 4 },
+  betCardTop: {
+    backgroundColor: '#0d1f0d', borderColor: colors.accent.gold + '60',
+    borderWidth: 1.5,
+  },
+  topPickBadge: {
+    alignSelf: 'flex-start', backgroundColor: colors.accent.gold,
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8,
+  },
+  topPickText: { fontSize: 10, fontWeight: '900', color: '#000', letterSpacing: 0.5 },
+  betHead: { flexDirection: 'row', gap: 6, alignItems: 'center', marginBottom: 6 },
   betMarket: { flex: 1, fontSize: 10, fontWeight: '700', color: colors.text.muted, textTransform: 'uppercase' },
   betValBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
-  betValText: { fontSize: 11, fontWeight: 'bold', color: '#000' },
+  betValText: { fontSize: 10, fontWeight: 'bold', color: '#000' },
   riskBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   riskText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase' },
-  betSel: { fontSize: 13, fontWeight: 'bold', color: colors.text.primary, marginBottom: 5 },
-  betStats: { flexDirection: 'row', gap: 12, marginBottom: 5 },
+  betSel: { fontSize: 13, fontWeight: 'bold', color: colors.text.primary, marginBottom: 8 },
+  betStats: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   betStat: { fontSize: 11, color: colors.text.muted },
-  betRazon: { fontSize: 11, color: colors.text.primary, lineHeight: 15, fontStyle: 'italic' },
+  betOddsBox: {
+    flex: 1, backgroundColor: colors.accent.gold + '18', borderRadius: 8,
+    padding: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.accent.gold + '30',
+  },
+  betOddsVal: { fontSize: 18, fontWeight: '900', color: colors.accent.gold },
+  betOddsLbl: { fontSize: 9, color: colors.text.muted, marginTop: 1 },
+  betProbBox: {
+    flex: 1, backgroundColor: colors.accent.green + '18', borderRadius: 8,
+    padding: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.accent.green + '30',
+  },
+  betProbVal: { fontSize: 18, fontWeight: '900', color: colors.accent.green },
+  betProbLbl: { fontSize: 9, color: colors.text.muted, marginTop: 1 },
+  betValueBox: {
+    flex: 1, backgroundColor: colors.bg.card, borderRadius: 8,
+    padding: 8, alignItems: 'center', borderWidth: 1, borderColor: colors.border.subtle,
+  },
+  betRazon: { fontSize: 11, color: colors.text.primary, lineHeight: 16, fontStyle: 'italic', marginBottom: 4 },
   quickBetBtn: {
-    marginTop: 10, backgroundColor: '#22c55e15', borderRadius: 8,
-    paddingVertical: 9, alignItems: 'center',
+    marginTop: 8, backgroundColor: '#22c55e15', borderRadius: 8,
+    paddingVertical: 10, alignItems: 'center',
     borderWidth: 1, borderColor: '#22c55e40',
+  },
+  quickBetBtnTop: {
+    backgroundColor: colors.accent.green,
+    borderColor: colors.accent.green,
   },
   quickBetBtnText: { fontSize: 13, fontWeight: '700', color: '#22c55e' },
   // Confidence

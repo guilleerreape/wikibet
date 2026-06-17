@@ -2,8 +2,9 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { supabase, getProfile, getDailyUsage, incrementUsage, FREE_LIMITS, type Profile, type DailyUsage } from '../services/supabase';
 import type { Session, User } from '@supabase/supabase-js';
 
-const BYPASS_CODE = '130823';
-const BYPASS_KEY  = 'wikibet_bypass';
+const BYPASS_CODE   = '130823';
+const BYPASS_KEY    = 'wikibet_bypass';
+const WELCOME_KEY   = 'wikibet_welcomed_v2';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface AuthContextType {
@@ -29,6 +30,8 @@ interface AuthContextType {
   setShowUpgradeModal: (v: boolean) => void;
   upgradeReason: string;
   setUpgradeReason: (v: string) => void;
+  showWelcomeModal: boolean;
+  setShowWelcomeModal: (v: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,9 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [dailyUsage, setDailyUsage]     = useState<DailyUsage>({ ai_analyses: 0, chat_messages: 0 });
   const [loading, setLoading]           = useState(true);
   const [bypassActive, setBypassActive] = useState(false);
-  const [showLoginModal, setShowLoginModal]   = useState(false);
+  const [showLoginModal, setShowLoginModal]     = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [upgradeReason, setUpgradeReason]     = useState('');
+  const [upgradeReason, setUpgradeReason]       = useState('');
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   const isPremium      = bypassActive || (profile?.is_premium ?? false);
   const isAuthenticated = !!user || bypassActive;
@@ -110,6 +114,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadProfile(userId: string) {
     const p = await getProfile(userId);
     setProfile(p);
+    // Mostrar bienvenida a usuarios free la primera vez (no bypass)
+    if (p && !p.is_premium && !readBypass()) {
+      try {
+        const key = `${WELCOME_KEY}_${userId}`;
+        const welcomed = typeof localStorage !== 'undefined' && localStorage.getItem(key);
+        if (!welcomed) {
+          if (typeof localStorage !== 'undefined') localStorage.setItem(key, '1');
+          setTimeout(() => setShowWelcomeModal(true), 1800);
+        }
+      } catch {}
+    }
   }
   async function loadUsage(userId: string) {
     const usage = await getDailyUsage(userId);
@@ -181,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       showLoginModal, setShowLoginModal,
       showUpgradeModal, setShowUpgradeModal,
       upgradeReason, setUpgradeReason,
+      showWelcomeModal, setShowWelcomeModal,
     }}>
       {children}
     </AuthContext.Provider>
