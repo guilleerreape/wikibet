@@ -141,11 +141,36 @@ export default function MatchEventsPanel({
   // Use real API rawStatus for halftime — never rely on computed elapsed time
   const isHalftime = status === 'live' && rawStatus === 'HT';
 
-  // For upcoming matches, show a special "ready" panel
+  // For upcoming matches: show UpcomingReadyPanel on top, then estimated events below
   if (status === 'upcoming') {
     return (
       <View style={[styles.panel, { borderColor: '#1f2937' }]}>
         <UpcomingReadyPanel homeTeam={homeTeam} awayTeam={awayTeam} matchDate={matchDate} />
+        {estimatedEvents.length > 0 && (
+          <>
+            <View style={styles.divider} />
+            <Text style={[styles.eventsLabel, { color: '#3b82f6' }]}>🤖 PREDICCIÓN IA</Text>
+            <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
+              {estimatedEvents.map((ev, i) => {
+                const isSub = ev.type === 'sub';
+                const parts = isSub && ev.detail ? ev.detail.split('→') : null;
+                return (
+                  <View key={i} style={[styles.eventRow, ev.type === 'goal' && styles.eventRowGoal]}>
+                    <Text style={styles.eventMinute}>{ev.minute}'</Text>
+                    <Text style={styles.eventIcon}>{getEventIcon(ev.type)}</Text>
+                    <View style={styles.eventPlayerWrap}>
+                      <Text style={styles.eventPlayer} numberOfLines={1}>{ev.player}</Text>
+                      {isSub && parts && parts.length === 2 && (
+                        <Text style={styles.eventSub} numberOfLines={1}>↓{parts[0].trim()} ↑{parts[1].trim()}</Text>
+                      )}
+                    </View>
+                    <View style={[styles.teamDot, { backgroundColor: ev.team === 'home' ? '#3b82f6' : '#ef4444' }]} />
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
       </View>
     );
   }

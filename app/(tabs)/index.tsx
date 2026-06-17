@@ -639,20 +639,16 @@ export default function MatchesScreen() {
     return () => clearInterval(ticker);
   }, []);
 
-  // ─── Pre-match lineup auto-check: for matches starting within 24h ────────────
-  // Check if TheSportsDB has the official lineup for upcoming matches
+  // ─── Pre-match lineup auto-check: for ALL upcoming matches (coaches submit lineups 1h before) ────
+  // Check TheSportsDB for official lineup; coaches typically submit 1h before kickoff
   useEffect(() => {
     if (matches.length === 0) return;
 
     const checkPreMatchLineups = async () => {
-      const now = Date.now();
-      const upcoming24h = matches.filter(m => {
-        if (m.status !== 'upcoming') return false;
-        const diff = new Date(m.date).getTime() - now;
-        return diff > 0 && diff <= 24 * 60 * 60 * 1000;
-      });
+      // Check all upcoming matches (any time) — TheSportsDB returns data when lineup is submitted
+      const upcoming = matches.filter(m => m.status === 'upcoming');
 
-      for (const match of upcoming24h.slice(0, 3)) {
+      for (const match of upcoming.slice(0, 6)) {
         try {
           const lineup = await sportsDbService.getMatchLineup(match.id, match.homeTeam, match.awayTeam);
           if (lineup && (lineup.homePlayers.length >= 8 || lineup.awayPlayers.length >= 8)) {
@@ -847,12 +843,19 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
   };
 
   function generateEstimatedEvents(match: CompetitionMatch, anal: any): MatchEvent[] {
-    if (match.homeScore === null || match.awayScore === null) return [];
+    // For upcoming matches we generate predicted events; for finished we need scores
+    const isUpcoming = match.status === 'upcoming';
+    if (!isUpcoming && (match.homeScore === null || match.awayScore === null)) return [];
     const events: MatchEvent[] = [];
 
-    const homeGoals = match.homeScore ?? 0;
-    const awayGoals = match.awayScore ?? 0;
+    const homeGoals = isUpcoming
+      ? Math.round(anal?.predicciones?.golesEsperados?.local ?? 1)
+      : (match.homeScore ?? 0);
+    const awayGoals = isUpcoming
+      ? Math.round(anal?.predicciones?.golesEsperados?.visitante ?? 1)
+      : (match.awayScore ?? 0);
 
+    const allScorers: string[] = (anal?.predicciones?.goleadores?.anytime ?? []).map((g: any) => g.nombre as string);
     const homeScorers = (anal?.predicciones?.goleadores?.anytime ?? [])
       .filter((g: any) => g.equipo === match.homeTeam)
       .map((g: any) => g.nombre as string);
@@ -875,13 +878,48 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
     const homeYellow = anal?.predicciones?.tarjetas?.amarillas_local ?? 0;
     const awayYellow = anal?.predicciones?.tarjetas?.amarillas_visitante ?? 0;
-    const riskPlayers = anal?.predicciones?.tarjetas?.jugadores_riesgo ?? [];
+    const riskPlayers: any[] = anal?.predicciones?.tarjetas?.jugadores_riesgo ?? [];
 
     if (homeYellow > 0 && riskPlayers[0]) {
       events.push({ minute: 38, type: 'yellow', team: 'home', player: riskPlayers[0].nombre });
     }
     if (awayYellow > 0 && riskPlayers[1]) {
       events.push({ minute: 62, type: 'yellow', team: 'away', player: riskPlayers[1].nombre });
+    }
+    if (homeYellow > 1 && riskPlayers[2]) {
+      events.push({ minute: 74, type: 'yellow', team: 'home', player: riskPlayers[2].nombre });
+    }
+
+    // ── Fouls (estimated from predicted foul count) ──────────────────────────
+    const totalFouls = anal?.predicciones?.faltas?.total_esperado ?? 22;
+    const homeFouls = anal?.predicciones?.faltas?.local ?? Math.ceil(totalFouls / 2);
+    const awayFouls = anal?.predicciones?.faltas?.visitante ?? Math.floor(totalFouls / 2);
+    const foulMinutesHome = [12, 31, 48, 66, 83].slice(0, Math.min(homeFouls, 3));
+    const foulMinutesAway = [18, 42, 55, 72, 87].slice(0, Math.min(awayFouls, 3));
+    const foulPlayerHome = allScorers[0] ?? homeScorers[0] ?? 'Local';
+    const foulPlayerAway = allScorers[1] ?? awayScorers[0] ?? 'Visitante';
+    foulMinutesHome.forEach((min, i) => {
+      if (i < 2) events.push({ minute: min, type: 'foul', team: 'home', player: i === 0 ? foulPlayerHome : (homeScorers[1] ?? foulPlayerHome) });
+    });
+    foulMinutesAway.forEach((min, i) => {
+      if (i < 2) events.push({ minute: min, type: 'foul', team: 'away', player: i === 0 ? foulPlayerAway : (awayScorers[1] ?? foulPlayerAway) });
+    });
+
+    // ── Offsides (1-2 per team) ───────────────────────────────────────────────
+    events.push({ minute: 27, type: 'offside', team: 'home', player: homeScorers[0] ?? 'Fuera de juego' });
+    events.push({ minute: 58, type: 'offside', team: 'away', player: awayScorers[0] ?? 'Fuera de juego' });
+    if (homeGoals >= 2) events.push({ minute: 80, type: 'offside', team: 'home', player: homeScorers[1] ?? homeScorers[0] ?? 'Fuera de juego' });
+
+    // ── Substitutions (1-2 per team from 60' onwards) ─────────────────────────
+    const homeSubOff = homeScorers[0] ?? allScorers[0] ?? 'Titular local';
+    const homeSubOn  = allScorers[2] ?? homeScorers[1] ?? 'Suplente local';
+    const awaySubOff = awayScorers[0] ?? allScorers[1] ?? 'Titular visitante';
+    const awaySubOn  = allScorers[3] ?? awayScorers[1] ?? 'Suplente visitante';
+    events.push({ minute: 64, type: 'sub', team: 'home', player: homeSubOff, detail: `${homeSubOff}→${homeSubOn}` });
+    events.push({ minute: 71, type: 'sub', team: 'away', player: awaySubOff, detail: `${awaySubOff}→${awaySubOn}` });
+    if (!isUpcoming) {
+      // For finished matches: add a second sub wave
+      events.push({ minute: 77, type: 'sub', team: 'home', player: homeScorers[1] ?? homeSubOn, detail: `${homeScorers[1] ?? homeSubOn}→${allScorers[4] ?? 'Suplente'}` });
     }
 
     return events.sort((a, b) => a.minute - b.minute);
@@ -950,14 +988,20 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       setSdbCtxRef({ homeSquad: sdbContext.homeSquad ?? [], awaySquad: sdbContext.awaySquad ?? [] });
     }
 
-    // Apply real lineup from TheSportsDB ONLY if it has MORE players than wcSquads pre-fill.
-    // wcSquads pre-populated 11+11=22; if sdbLineup also has 22, we keep the correct wcSquads.
-    // This prevents wrong TheSportsDB data (e.g. Serbia's squad for Congo) from overriding.
+    // Apply real lineup from TheSportsDB.
+    // For UPCOMING matches: if sdbLineup has ≥8 players, it's the official confirmed lineup —
+    // ALWAYS use it (overrides wcSquads predicted players with actual official players).
+    // For other statuses: only override if sdb has MORE players than wcSquads to avoid bad data.
     if (sdbLineup && (sdbLineup.homePlayers.length > 0 || sdbLineup.awayPlayers.length > 0)) {
+      const isConfirmedUpcoming = match.status === 'upcoming' &&
+        (sdbLineup.homePlayers.length >= 8 || sdbLineup.awayPlayers.length >= 8);
+
       setMatchLineup(prev => {
         const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
         const sdbTotal = sdbLineup.homePlayers.length + sdbLineup.awayPlayers.length;
-        if (sdbTotal <= currentCount) return prev; // wcSquads already has same/more — keep it
+        // For confirmed upcoming: always use official lineup (coaches have submitted it)
+        // For others: only override if sdb has more players
+        if (!isConfirmedUpcoming && sdbTotal <= currentCount) return prev;
         return {
           homeFormation: sdbLineup.homeFormation ?? '4-3-3',
           awayFormation: sdbLineup.awayFormation ?? '4-3-3',
@@ -965,9 +1009,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           awayPlayers: sdbLineup.awayPlayers.map(p => ({ name: p.name, number: p.number, position: p.position })),
         };
       });
-      // Mark as confirmed if sdbLineup has players AND match hasn't started yet
-      if (match.status === 'upcoming' &&
-          (sdbLineup.homePlayers.length >= 8 || sdbLineup.awayPlayers.length >= 8)) {
+      if (isConfirmedUpcoming) {
         setLineupConfirmed(true);
       }
     } else {

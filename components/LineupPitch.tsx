@@ -121,15 +121,17 @@ export default function LineupPitch({
 
         {!noPlayers && (
           <View style={{
-            position: 'absolute', top: 4, left: 0, right: 0,
-            alignItems: 'center', zIndex: 2,
+            position: 'absolute', top: '49%', left: 0, right: 0,
+            alignItems: 'center', zIndex: 2, marginTop: -9,
           }}>
             <View style={{
-              backgroundColor: lineupConfirmed ? '#15803d' : '#1e3a5f',
-              paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+              backgroundColor: lineupConfirmed ? 'rgba(21,128,61,0.93)' : 'rgba(30,58,95,0.93)',
+              paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5,
+              borderWidth: 1,
+              borderColor: lineupConfirmed ? '#22c55e60' : '#3b82f660',
             }}>
-              <Text style={{ color: lineupConfirmed ? '#4ade80' : '#60a5fa', fontSize: 8, fontWeight: '800', letterSpacing: 0.5 }}>
-                {lineupConfirmed ? '✅ CONFIRMADA' : '🤖 PROBABLE'}
+              <Text style={{ color: lineupConfirmed ? '#4ade80' : '#60a5fa', fontSize: 7, fontWeight: '900', letterSpacing: 0.8 }}>
+                {lineupConfirmed ? '✅ ALINEACIÓN CONFIRMADA' : '🤖 ALINEACIÓN PROBABLE'}
               </Text>
             </View>
           </View>

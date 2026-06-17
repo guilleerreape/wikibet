@@ -152,8 +152,8 @@ export default function NoticiasScreen() {
   }, [fetchNews]);
 
   const filteredNews = useMemo(() => {
-    if (selectedFilter === 'ALL') return allNews;
-    return allNews.filter(n => n.impact === selectedFilter);
+    const base = selectedFilter === 'ALL' ? allNews : allNews.filter(n => n.impact === selectedFilter);
+    return [...base].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   }, [selectedFilter, allNews]);
 
   const impactCounts = useMemo(() => ({
