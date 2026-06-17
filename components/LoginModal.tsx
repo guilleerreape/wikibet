@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
-  Image, Platform,
+  TextInput, Platform,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -11,15 +11,37 @@ interface Props {
 }
 
 export default function LoginModal({ visible, onClose }: Props) {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, loginWithCode } = useAuth();
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [showCodeInput, setShowCodeInput] = useState(false);
 
   async function handleGoogle() {
     onClose();
     await signInWithGoogle();
   }
 
+  function handleCode() {
+    const ok = loginWithCode(code.trim());
+    if (ok) {
+      setCode('');
+      setCodeError('');
+      setShowCodeInput(false);
+      onClose();
+    } else {
+      setCodeError('Código incorrecto. Inténtalo de nuevo.');
+    }
+  }
+
+  function handleClose() {
+    setCode('');
+    setCodeError('');
+    setShowCodeInput(false);
+    onClose();
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <View style={s.overlay}>
         <View style={s.card}>
           {/* Header */}
@@ -45,8 +67,44 @@ export default function LoginModal({ visible, onClose }: Props) {
             <Text style={s.googleText}>Continuar con Google</Text>
           </TouchableOpacity>
 
+          {/* Divider */}
+          <View style={s.divider}>
+            <View style={s.dividerLine} />
+            <Text style={s.dividerText}>o</Text>
+            <View style={s.dividerLine} />
+          </View>
+
+          {/* Code access */}
+          {!showCodeInput ? (
+            <TouchableOpacity style={s.codeToggleBtn} onPress={() => setShowCodeInput(true)} activeOpacity={0.8}>
+              <Text style={s.codeToggleText}>🔑  Tengo un código de acceso</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={s.codeSection}>
+              <TextInput
+                style={s.codeInput}
+                placeholder="Introduce tu código"
+                placeholderTextColor="#4b5563"
+                value={code}
+                onChangeText={t => { setCode(t); setCodeError(''); }}
+                keyboardType="default"
+                autoCapitalize="none"
+                autoCorrect={false}
+                onSubmitEditing={handleCode}
+                returnKeyType="done"
+              />
+              {codeError ? <Text style={s.codeError}>{codeError}</Text> : null}
+              <TouchableOpacity style={s.codeBtn} onPress={handleCode} activeOpacity={0.85}>
+                <Text style={s.codeBtnText}>Acceder</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setShowCodeInput(false); setCode(''); setCodeError(''); }}>
+                <Text style={s.codeCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* Close */}
-          <TouchableOpacity onPress={onClose} style={s.closeBtn}>
+          <TouchableOpacity onPress={handleClose} style={s.closeBtn}>
             <Text style={s.closeText}>Ahora no</Text>
           </TouchableOpacity>
         </View>
@@ -86,11 +144,46 @@ const s = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12,
     paddingVertical: 14, paddingHorizontal: 24,
     alignSelf: 'stretch', justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 4,
   },
   googleIcon: { fontSize: 16, fontWeight: '800', color: '#1a73e8' },
   googleText: { fontSize: 15, fontWeight: '600', color: '#111' },
 
-  closeBtn: { paddingVertical: 10 },
+  divider: {
+    flexDirection: 'row', alignItems: 'center',
+    alignSelf: 'stretch', marginVertical: 14, gap: 8,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#1f2937' },
+  dividerText: { color: '#4b5563', fontSize: 12 },
+
+  codeToggleBtn: {
+    alignSelf: 'stretch', borderRadius: 12,
+    borderWidth: 1, borderColor: '#374151',
+    paddingVertical: 13, alignItems: 'center',
+    marginBottom: 4,
+  },
+  codeToggleText: { color: '#9ca3af', fontSize: 14, fontWeight: '600' },
+
+  codeSection: {
+    alignSelf: 'stretch', gap: 8, marginBottom: 4,
+  },
+  codeInput: {
+    backgroundColor: '#1f2937',
+    borderRadius: 12, borderWidth: 1, borderColor: '#374151',
+    paddingVertical: 13, paddingHorizontal: 16,
+    color: '#fff', fontSize: 16,
+    textAlign: 'center', letterSpacing: 2,
+  },
+  codeError: {
+    color: '#ef4444', fontSize: 12, textAlign: 'center',
+  },
+  codeBtn: {
+    backgroundColor: '#22c55e', borderRadius: 12,
+    paddingVertical: 13, alignItems: 'center',
+  },
+  codeBtnText: { color: '#000', fontWeight: '800', fontSize: 15 },
+  codeCancelText: { color: '#4b5563', fontSize: 13, textAlign: 'center', paddingVertical: 4 },
+
+  closeBtn: { paddingVertical: 10, marginTop: 4 },
   closeText: { color: '#6b7280', fontSize: 14 },
 });
