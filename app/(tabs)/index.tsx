@@ -17,6 +17,7 @@ import { colors } from '@/constants/colors';
 import { espnMatchService, CompetitionMatch, COMPETITIONS, Competition, StandingEntry, WC_GROUPS_STATIC, getMatchDetails, MatchLineup, MatchEvent } from '@/services/espnMatchService';
 import { advancedAIAnalysis, AdvancedMatchAnalysis } from '@/services/advancedAIAnalysis';
 import LineupPitch from '@/components/LineupPitch';
+import MatchEventsPanel from '@/components/MatchEventsPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
@@ -407,6 +408,7 @@ export default function MatchesScreen() {
   const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
   const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
+  const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Timestamps de última actualización de pronósticos por matchId
   const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
     try {
@@ -511,6 +513,47 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setPostMatchCommentLoading(false);
   };
 
+  function generateEstimatedEvents(match: CompetitionMatch, anal: any): MatchEvent[] {
+    if (match.homeScore === null || match.awayScore === null) return [];
+    const events: MatchEvent[] = [];
+
+    const homeGoals = match.homeScore ?? 0;
+    const awayGoals = match.awayScore ?? 0;
+
+    const homeScorers = (anal?.predicciones?.goleadores?.anytime ?? [])
+      .filter((g: any) => g.equipo === match.homeTeam)
+      .map((g: any) => g.nombre as string);
+    const awayScorers = (anal?.predicciones?.goleadores?.anytime ?? [])
+      .filter((g: any) => g.equipo === match.awayTeam)
+      .map((g: any) => g.nombre as string);
+
+    const defaultHome = homeScorers[0] ?? 'Gol local';
+    const defaultAway = awayScorers[0] ?? 'Gol visitante';
+
+    const homeMinutes = [23, 45, 67, 78, 88].slice(0, homeGoals);
+    const awayMinutes = [34, 56, 71, 82, 90].slice(0, awayGoals);
+
+    homeMinutes.forEach((min, i) => {
+      events.push({ minute: min, type: 'goal', team: 'home', player: homeScorers[i] ?? defaultHome });
+    });
+    awayMinutes.forEach((min, i) => {
+      events.push({ minute: min, type: 'goal', team: 'away', player: awayScorers[i] ?? defaultAway });
+    });
+
+    const homeYellow = anal?.predicciones?.tarjetas?.amarillas_local ?? 0;
+    const awayYellow = anal?.predicciones?.tarjetas?.amarillas_visitante ?? 0;
+    const riskPlayers = anal?.predicciones?.tarjetas?.jugadores_riesgo ?? [];
+
+    if (homeYellow > 0 && riskPlayers[0]) {
+      events.push({ minute: 38, type: 'yellow', team: 'home', player: riskPlayers[0].nombre });
+    }
+    if (awayYellow > 0 && riskPlayers[1]) {
+      events.push({ minute: 62, type: 'yellow', team: 'away', player: riskPlayers[1].nombre });
+    }
+
+    return events.sort((a, b) => a.minute - b.minute);
+  }
+
   const openAnalysis = async (match: CompetitionMatch) => {
     if (!isAuthenticated) { setShowLoginModal(true); return; }
     const ok = await trackAnalysis();
@@ -522,6 +565,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setPostMatchCommentLoading(false);
     setMatchLineup(null);
     setMatchEvents([]);
+    setEstimatedEvents([]);
     setAnalysisLoading(true);
     // Fetch ESPN match details (events + lineup) — only works for numeric ESPN IDs
     getMatchDetails(match.leagueId, match.id).then(({ events, lineup }) => {
@@ -533,6 +577,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         match.homeTeam, match.awayTeam, match.league
       );
       setAnalysis(result);
+
+      // Generate estimated events for static/finished matches with no ESPN data
+      if (match.status === 'finished' || match.status === 'live') {
+        const estimated = generateEstimatedEvents(match, result);
+        setEstimatedEvents(estimated);
+      }
 
       // ── Track prediction in Supabase (shared across all users/devices) ──
       const probs = result.predicciones.probabilidades;
@@ -798,22 +848,42 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     return (
       <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
 
-        {/* ALINEACIONES */}
+        {/* ALINEACIONES & MARCADOR */}
         {(() => {
           const effectiveLineup = matchLineup ?? buildPredictedLineup(selectedMatch!.homeTeam, selectedMatch!.awayTeam, analysis);
           return (
-            <Section icon="🏟️" title="ALINEACIONES" accent="#10b981" delay={0}>
-              <LineupPitch
-                homeTeam={selectedMatch!.homeTeam}
-                awayTeam={selectedMatch!.awayTeam}
-                homeFormation={effectiveLineup.homeFormation}
-                awayFormation={effectiveLineup.awayFormation}
-                homePlayers={effectiveLineup.homePlayers}
-                awayPlayers={effectiveLineup.awayPlayers}
-                isLoading={false}
-              />
+            <Section icon="🏟️" title="ALINEACIONES & MARCADOR" accent="#10b981" delay={0}>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                {/* Left: pitch */}
+                <LineupPitch
+                  homeTeam={selectedMatch!.homeTeam}
+                  awayTeam={selectedMatch!.awayTeam}
+                  homeFormation={effectiveLineup.homeFormation}
+                  awayFormation={effectiveLineup.awayFormation}
+                  homePlayers={effectiveLineup.homePlayers}
+                  awayPlayers={effectiveLineup.awayPlayers}
+                  isUpcoming={selectedMatch!.status === 'upcoming'}
+                  isLoading={false}
+                />
+                {/* Right: score + events */}
+                <MatchEventsPanel
+                  homeTeam={selectedMatch!.homeTeam}
+                  awayTeam={selectedMatch!.awayTeam}
+                  homeScore={selectedMatch!.homeScore}
+                  awayScore={selectedMatch!.awayScore}
+                  status={selectedMatch!.status}
+                  events={matchEvents}
+                  estimatedEvents={estimatedEvents}
+                  matchDate={selectedMatch!.date}
+                />
+              </View>
               <Text style={{ color: '#6b7280', fontSize: 10, textAlign: 'center', marginTop: 6 }}>
-                {matchLineup ? 'Alineación oficial · Fuente: ESPN' : '🤖 Alineación predicha por IA · Se actualizará cuando sea oficial'}
+                {matchLineup
+                  ? 'Alineación oficial · Fuente: ESPN'
+                  : selectedMatch!.status === 'upcoming'
+                    ? '🤖 Alineación posible predicha por IA · Se actualizará cuando sea oficial'
+                    : '🤖 Alineación estimada por IA basada en el partido'
+                }
               </Text>
             </Section>
           );
@@ -849,25 +919,6 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         {/* PANEL APUESTA DE LA IA — siempre visible (upcoming + played) */}
         <AiBetPanel match={selectedMatch} analysis={analysis} />
 
-        {/* EVENTOS DEL PARTIDO */}
-        {(selectedMatch!.status === 'finished' || selectedMatch!.status === 'live') && matchEvents.length > 0 && (
-          <Section icon="⚡" title="EVENTOS DEL PARTIDO" accent="#f59e0b" delay={40}>
-            <View style={{ gap: 6 }}>
-              {matchEvents.map((ev, i) => (
-                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#1f2937' }}>
-                  <Text style={{ color: '#9ca3af', fontSize: 11, width: 32 }}>{ev.minute}'</Text>
-                  <Text style={{ fontSize: 16 }}>
-                    {ev.type === 'goal' ? '⚽' : ev.type === 'penalty' ? '⚽🎯' : ev.type === 'owngoal' ? '⚽😬' : ev.type === 'yellow' ? '🟨' : ev.type === 'red' ? '🟥' : '↕️'}
-                  </Text>
-                  <Text style={{ color: '#e5e7eb', fontSize: 12, flex: 1 }}>{ev.player}</Text>
-                  <Text style={{ color: ev.team === 'home' ? '#3b82f6' : '#ef4444', fontSize: 10 }}>
-                    {ev.team === 'home' ? selectedMatch!.homeTeam : selectedMatch!.awayTeam}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </Section>
-        )}
 
         {/* EQUIPOS */}
         <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" delay={80}>
@@ -1395,6 +1446,19 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
             <View style={{ width: 30 }} />
           </View>
+
+          {selectedMatch && predTimestamps[selectedMatch.id] && selectedMatch.status === 'upcoming' && (
+            <View style={{
+              paddingHorizontal: 16, paddingVertical: 6,
+              backgroundColor: '#0f2a1a', borderBottomWidth: 1, borderBottomColor: '#1a4a2a',
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+            }}>
+              <Text style={{ fontSize: 9, color: '#22c55e', fontWeight: '700' }}>
+                🤖 Última actualización pronóstico: {new Date(predTimestamps[selectedMatch.id]).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} h
+              </Text>
+              <Text style={{ fontSize: 9, color: '#4ade80' }}>· IA recalibrada</Text>
+            </View>
+          )}
 
           {analysisLoading ? (
             <View style={styles.center}>

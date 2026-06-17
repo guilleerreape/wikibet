@@ -60,6 +60,16 @@ async function generateAINews(): Promise<RealNews[]> {
   });
   const todayShort = new Date().toLocaleDateString('es-ES');
 
+  // Today's WC fixtures for context
+  const todayFixtures = [
+    "Portugal vs R.D. Congo (17 Jun, 17:00 UTC, Gillette Stadium Boston)",
+    "Inglaterra vs Croacia (17 Jun, 20:00 UTC, Rose Bowl LA)",
+    "Ghana vs Panamá (17 Jun, 23:00 UTC, Hard Rock Miami)",
+    "Uzbekistán vs Colombia (18 Jun, 02:00 UTC, Arrowhead Kansas City)",
+    "Rep. Checa vs Sudáfrica (18 Jun, 16:00 UTC)",
+    "Suiza vs Bosnia (18 Jun, 19:00 UTC)",
+  ].join('\n');
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
 
@@ -80,12 +90,17 @@ async function generateAINews(): Promise<RealNews[]> {
           role: 'user',
           content: `Hoy es ${today}. Es la fase de grupos del Mundial 2026 en USA, México y Canadá.
 
+PARTIDOS DE HOY Y PRÓXIMAS 24H:
+${todayFixtures}
+
 Genera 8 noticias deportivas ACTUALES y MUY CREÍBLES para HOY (${todayShort}) sobre el Mundial 2026.
 Mezcla noticias sobre: posibles bajas por lesión o molestias, análisis tácticos pre-partido, movimientos de cuotas, partidos clave de hoy o mañana, rendimiento reciente de selecciones.
 
+Genera noticias específicas relacionadas con ESTOS PARTIDOS: lesiones de jugadores clave de Portugal, Inglaterra, Colombia, etc. que juegan hoy o mañana.
+
 REGLAS:
 - Solo noticias que ocurren HOY o que hablan de los PRÓXIMOS días
-- Menciona jugadores reales de selecciones conocidas (Mbappé, Messi, Bellingham, Yamal, etc.)
+- Menciona jugadores reales de selecciones conocidas (Mbappé, Messi, Bellingham, Yamal, Cristiano, Salah, etc.)
 - Las 3 primeras deben ser impacto HIGH con info de lesiones o análisis tácticos clave
 - Incluye siempre el impacto concreto en mercados de apuestas
 
