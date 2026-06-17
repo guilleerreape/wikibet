@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Animated, StyleSheet } from 'react-native';
 import { MatchEvent } from '@/services/espnMatchService';
 
@@ -11,6 +11,7 @@ interface MatchEventsPanelProps {
   events: MatchEvent[];
   estimatedEvents?: MatchEvent[];
   matchDate: string;
+  liveMinute?: number;
 }
 
 function getEventIcon(type: MatchEvent['type']): string {
@@ -32,8 +33,10 @@ function computeLiveMinute(matchDate: string): number {
   return Math.min(Math.max(elapsed, 1), 90);
 }
 
-function LiveMinuteBadge({ matchDate }: { matchDate: string }) {
+function LiveMinuteBadge({ matchDate, liveMinute }: { matchDate: string; liveMinute?: number }) {
   const anim = useRef(new Animated.Value(1)).current;
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -41,9 +44,12 @@ function LiveMinuteBadge({ matchDate }: { matchDate: string }) {
         Animated.timing(anim, { toValue: 1, duration: 600, useNativeDriver: true }),
       ])
     ).start();
+    // Update minute every 60 seconds
+    const interval = setInterval(() => setTick(t => t + 1), 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  const minute = computeLiveMinute(matchDate);
+  const minute = liveMinute ?? computeLiveMinute(matchDate);
   return (
     <View style={styles.liveMinuteRow}>
       <Animated.Text style={[styles.liveDot, { opacity: anim }]}>●</Animated.Text>
@@ -132,6 +138,7 @@ export default function MatchEventsPanel({
   events,
   estimatedEvents = [],
   matchDate,
+  liveMinute,
 }: MatchEventsPanelProps) {
   const displayEvents = events.length > 0 ? events : estimatedEvents;
   const isEstimated = events.length === 0 && estimatedEvents.length > 0;
@@ -170,7 +177,7 @@ export default function MatchEventsPanel({
       {/* Live minute / Halftime */}
       {status === 'live' && isHalftime && <HalftimeBanner />}
       {status === 'live' && !isHalftime && (
-        <LiveMinuteBadge matchDate={matchDate} />
+        <LiveMinuteBadge matchDate={matchDate} liveMinute={liveMinute} />
       )}
 
       <View style={styles.divider} />

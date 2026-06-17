@@ -112,7 +112,7 @@ const nh = StyleSheet.create({
 const at = StyleSheet.create({
   col: { flexDirection: 'column', alignItems: 'flex-start' },
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  text: { fontSize: 19, fontWeight: '900', letterSpacing: 0.3 },
+  text: { fontSize: 23, fontWeight: '900', letterSpacing: 0.3 },
   dot: {
     width: 6, height: 6, borderRadius: 3,
     backgroundColor: '#ef4444',
@@ -469,7 +469,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           headerTitle: () => <AnimatedWikiTitle />,
-          headerTitleAlign: 'left',
+          headerTitleAlign: 'center',
           tabBarLabel: () => null,
           tabBarIcon: ({ focused }) => <TabIcon emoji="📊" label="Partidos" focused={focused} />,
         }}

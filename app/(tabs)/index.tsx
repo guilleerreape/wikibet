@@ -98,7 +98,7 @@ function getTodayStart(): Date {
 }
 
 // ─── Header animado "PARTIDOS" ────────────────────────────────────────────────
-function PartidosHeader({ count, showPast }: { count: number; showPast: boolean }) {
+function PartidosHeader({ count, showPast, comp }: { count: number; showPast: boolean; comp?: { name: string; id: string; emoji: string; shortName: string } }) {
   const anim = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(1)).current;
 
@@ -135,14 +135,18 @@ function PartidosHeader({ count, showPast }: { count: number; showPast: boolean 
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     }, { backgroundColor: glowColor }]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Animated.Text style={{ fontSize: 22, transform: [{ scale: pulse }] }}>📊</Animated.Text>
+        <Animated.Text style={{ fontSize: 22, transform: [{ scale: pulse }] }}>
+          {comp?.emoji ?? '📊'}
+        </Animated.Text>
         <View>
           <Animated.Text style={{ fontSize: 18, fontWeight: '900', letterSpacing: 0.5, color }}>
             PARTIDOS
           </Animated.Text>
-          <Text style={{ fontSize: 9, color: '#4b5563', fontWeight: '600', marginTop: 1 }}>
-            Mundial 2026 · Fase de Grupos
-          </Text>
+          {comp && (
+            <Text style={{ fontSize: 9, color: '#4b5563', fontWeight: '600', marginTop: 1 }}>
+              {comp.id === 'FIFA.WORLD' ? 'Mundial 2026 · Fase de Grupos' : comp.name}
+            </Text>
+          )}
         </View>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
@@ -482,6 +486,11 @@ export default function MatchesScreen() {
     homeScorers: { name: string; minute: number }[];
     awayScorers: { name: string; minute: number }[];
   }>>({});
+  // Tick every 30s to force live minute re-render in match cards
+  const [liveTick, setLiveTick] = useState(0);
+  // Goal flash: matchId → team that scored last
+  const [goalFlash, setGoalFlash] = useState<Record<string, 'home' | 'away' | 'both' | null>>({});
+  const prevScoresRef = useRef<Record<string, { home: number; away: number }>>({});;
   // Timestamps de última actualización de pronósticos por matchId
   const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
     try {
@@ -560,11 +569,26 @@ export default function MatchesScreen() {
               .map(e => ({ name: e.player, minute: e.minute }));
           } catch {}
 
+          // Detect new goals for flash effect
+          const prev = prevScoresRef.current[match.id];
+          const newHome = liveData.homeScore!;
+          const newAway = liveData.awayScore!;
+          if (prev) {
+            const homeScored = newHome > prev.home;
+            const awayScored = newAway > prev.away;
+            if (homeScored || awayScored) {
+              const flashTeam = homeScored && awayScored ? 'both' : homeScored ? 'home' : 'away';
+              setGoalFlash(gf => ({ ...gf, [match.id]: flashTeam }));
+              setTimeout(() => setGoalFlash(gf => ({ ...gf, [match.id]: null })), 5000);
+            }
+          }
+          prevScoresRef.current[match.id] = { home: newHome, away: newAway };
+
           setLiveScoresMap(prev => ({
             ...prev,
             [match.id]: {
-              homeScore: liveData.homeScore!,
-              awayScore: liveData.awayScore!,
+              homeScore: newHome,
+              awayScore: newAway,
               status: liveData.status as 'live' | 'finished',
               minute: liveData.minute,
               homeScorers,
@@ -573,6 +597,8 @@ export default function MatchesScreen() {
           }));
         } catch {}
       }));
+      // Tick to force live minute re-render in match cards
+      setLiveTick(t => t + 1);
     };
 
     pollLiveScores(); // immediate first fetch
@@ -581,6 +607,12 @@ export default function MatchesScreen() {
   // Re-run when match list changes (new comp loaded)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches.length, selectedComp.id]);
+
+  // ─── Clock tick for live minute display (every 60s) ─────────────────────────
+  useEffect(() => {
+    const ticker = setInterval(() => setLiveTick(t => t + 1), 60 * 1000);
+    return () => clearInterval(ticker);
+  }, []);
 
   // ─── Sync selectedMatch score with live data ──────────────────────────────────
   // When live scores update, push them into selectedMatch so modal stays current
@@ -794,11 +826,28 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setAnalysisError(false);
     setPostMatchComment(null);
     setPostMatchCommentLoading(false);
-    setMatchLineup(null);
     setMatchEvents([]);
     setEstimatedEvents([]);
     setSdbCtxRef(null);
     setAnalysisLoading(true);
+
+    // ── PRE-POPULATE lineup from wcSquads immediately (synchronous — no API wait) ──
+    // This ensures the pitch ALWAYS shows players the moment the modal opens.
+    // The real TheSportsDB lineup will override this if/when it arrives.
+    {
+      const wcHome = getWcSquad(match.homeTeam);
+      const wcAway = getWcSquad(match.awayTeam);
+      if (wcHome.length > 0 || wcAway.length > 0) {
+        setMatchLineup({
+          homeFormation: '4-3-3',
+          awayFormation: '4-3-3',
+          homePlayers: wcHome,
+          awayPlayers: wcAway,
+        });
+      } else {
+        setMatchLineup(null);
+      }
+    }
 
     // ── TheSportsDB: fetch real lineup, events, squad & form in parallel ──────
     const [sdbContext, sdbLineup, sdbEvents] = await Promise.all([
@@ -995,6 +1044,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     const effectiveHomeScore = liveData ? liveData.homeScore : match.homeScore;
     const effectiveAwayScore = liveData ? liveData.awayScore : match.awayScore;
     const isLive = effectiveStatus === 'live';
+    const flash = goalFlash[match.id];
+    // Compute live minute from match start time (updates every 60s via liveTick)
+    const computedMinute = isLive
+      ? Math.min(90, Math.max(1, Math.floor((Date.now() - new Date(match.date).getTime()) / 60000)))
+      : undefined;
+    const displayMinute = liveData?.minute ?? computedMinute;
     const isFinished = effectiveStatus === 'finished';
     const predTs = predTimestamps[match.id];
     const predTimeStr = predTs ? new Date(predTs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : null;
@@ -1021,15 +1076,43 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       outputRange: ['#ef4444', '#ff6b6b'],
     });
 
+    // Goal flash animation
+    const goalFlashAnim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+      if (flash) {
+        goalFlashAnim.setValue(0);
+        Animated.sequence([
+          Animated.timing(goalFlashAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+          Animated.timing(goalFlashAnim, { toValue: 0.4, duration: 300, useNativeDriver: false }),
+          Animated.timing(goalFlashAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+          Animated.timing(goalFlashAnim, { toValue: 0.4, duration: 300, useNativeDriver: false }),
+          Animated.timing(goalFlashAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+          Animated.timing(goalFlashAnim, { toValue: 0, duration: 3800, useNativeDriver: false }),
+        ]).start();
+      }
+    }, [flash]);
+    const goalFlashBg = goalFlashAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['transparent', '#22c55e30'],
+    });
+
     const homeScorers = liveData?.homeScorers ?? [];
     const awayScorers = liveData?.awayScorers ?? [];
 
     const cardContent = (
       <>
+        {flash && (
+          <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 10, backgroundColor: goalFlashBg, zIndex: 0 }} />
+        )}
+        {flash && (
+          <View style={{ position: 'absolute', top: 6, right: 8, zIndex: 10 }}>
+            <Text style={{ fontSize: 16, fontWeight: '900', color: '#22c55e' }}>⚽ GOL!</Text>
+          </View>
+        )}
         {isLive && (
           <View style={styles.liveBadge}>
             <Text style={styles.liveText}>
-              ● EN VIVO{liveData?.minute ? ` · ${liveData.minute}'` : ''}
+              ● EN VIVO{displayMinute ? ` · ${displayMinute}'` : ''}
             </Text>
           </View>
         )}
@@ -1212,54 +1295,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     return (
       <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
 
-        {/* ALINEACIONES & MARCADOR */}
-        {(() => {
-          const effectiveLineup = matchLineup ?? buildPredictedLineup(selectedMatch!.homeTeam, selectedMatch!.awayTeam, analysis, sdbCtxRef);
-          const hasRealLineup = matchLineup && (matchLineup.homePlayers.length > 0 || matchLineup.awayPlayers.length > 0);
-          const hasPredLineup = !matchLineup && (effectiveLineup.homePlayers.length > 0 || effectiveLineup.awayPlayers.length > 0);
-          // isUpcoming=true shows "ALINEACIÓN POSIBLE"; false shows actual players
-          const pitchIsUpcoming = !hasRealLineup && !hasPredLineup;
-          return (
-            <Section icon="🏟️" title="ALINEACIONES & MARCADOR" accent="#10b981" delay={0}>
-              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-                {/* Left: pitch */}
-                <LineupPitch
-                  homeTeam={selectedMatch!.homeTeam}
-                  awayTeam={selectedMatch!.awayTeam}
-                  homeFormation={effectiveLineup.homeFormation}
-                  awayFormation={effectiveLineup.awayFormation}
-                  homePlayers={effectiveLineup.homePlayers}
-                  awayPlayers={effectiveLineup.awayPlayers}
-                  isUpcoming={pitchIsUpcoming && selectedMatch!.status === 'upcoming'}
-                  isLoading={false}
-                />
-                {/* Right: score + events */}
-                <MatchEventsPanel
-                  homeTeam={selectedMatch!.homeTeam}
-                  awayTeam={selectedMatch!.awayTeam}
-                  homeScore={liveHomeScore}
-                  awayScore={liveAwayScore}
-                  status={isLive ? 'live' : isFinished ? 'finished' : 'upcoming'}
-                  events={matchEvents}
-                  estimatedEvents={estimatedEvents}
-                  matchDate={selectedMatch!.date}
-                />
-              </View>
-              <Text style={{ color: '#6b7280', fontSize: 10, textAlign: 'center', marginTop: 6 }}>
-                {hasRealLineup
-                  ? '✅ Alineación confirmada · TheSportsDB'
-                  : hasPredLineup
-                    ? (isLive || selectedMatch!.status === 'live'
-                        ? '🔄 Alineación probable · Se actualiza automáticamente'
-                        : selectedMatch!.status === 'upcoming'
-                          ? '🤖 Alineación probable predicha por IA'
-                          : '🤖 Alineación estimada por IA')
-                    : '⏳ Cargando alineación...'
-                }
-              </Text>
-            </Section>
-          );
-        })()}
+        {/* Lineup caption (the pitch is rendered outside AnalysisContent, above the AI loading spinner) */}
+        <Text style={{ color: '#6b7280', fontSize: 10, textAlign: 'center', marginBottom: 10 }}>
+          {matchLineup && (matchLineup.homePlayers.length > 0)
+            ? (liveScoresMap[selectedMatch!.id]?.status === 'live' || selectedMatch!.status === 'live'
+                ? '🔄 Alineación · Se actualiza automáticamente'
+                : selectedMatch!.status === 'upcoming'
+                  ? '🤖 Alineación probable · Predicción IA + histórico'
+                  : '📋 Alineación del partido')
+            : '⏳ Cargando alineación...'
+          }
+        </Text>
 
         {/* COMENTARIO IA — overlay exclusivo para partidos terminados */}
         {isFinished && (
@@ -1733,7 +1779,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
   return (
     <SafeAreaView style={styles.container}>
-      <PartidosHeader count={filtered.length} showPast={showPast} />
+      <PartidosHeader count={filtered.length} showPast={showPast} comp={selectedComp} />
 
       {/* Competiciones */}
       <ScrollView
@@ -1835,6 +1881,34 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
           )}
 
+          {/* ── PITCH + EVENTOS: visible siempre (antes que la IA termine) ── */}
+          {selectedMatch && (
+            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 }}>
+              <LineupPitch
+                homeTeam={selectedMatch.homeTeam}
+                awayTeam={selectedMatch.awayTeam}
+                homeFormation={matchLineup?.homeFormation ?? '4-3-3'}
+                awayFormation={matchLineup?.awayFormation ?? '4-3-3'}
+                homePlayers={matchLineup?.homePlayers ?? []}
+                awayPlayers={matchLineup?.awayPlayers ?? []}
+                isUpcoming={!matchLineup && selectedMatch.status === 'upcoming'}
+                isLoading={false}
+              />
+              <MatchEventsPanel
+                homeTeam={selectedMatch.homeTeam}
+                awayTeam={selectedMatch.awayTeam}
+                homeScore={liveScoresMap[selectedMatch.id]?.homeScore ?? selectedMatch.homeScore}
+                awayScore={liveScoresMap[selectedMatch.id]?.awayScore ?? selectedMatch.awayScore}
+                status={(liveScoresMap[selectedMatch.id]?.status ?? selectedMatch.status) as 'upcoming' | 'live' | 'finished'}
+                events={matchEvents}
+                estimatedEvents={estimatedEvents}
+                matchDate={selectedMatch.date}
+                liveMinute={liveScoresMap[selectedMatch.id]?.minute}
+              />
+            </View>
+          )}
+
+          {/* ── ANÁLISIS IA ── */}
           {analysisLoading ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color={colors.accent.green} />
