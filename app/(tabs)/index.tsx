@@ -981,11 +981,31 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     }
 
     // ── TheSportsDB: fetch real lineup, events, squad & form in parallel ──────
-    const [sdbContext, sdbLineup, sdbEvents] = await Promise.all([
+    // Also fetch live score immediately so the events panel shows correct status right away
+    const [sdbContext, sdbLineup, sdbEvents, liveScoreNow] = await Promise.all([
       sportsDbService.getMatchContext(match.homeTeam, match.awayTeam, match.id).catch(() => null),
       sportsDbService.getMatchLineup(match.id, match.homeTeam, match.awayTeam).catch(() => null),
       sportsDbService.getMatchEvents(match.id, match.homeTeam, match.awayTeam).catch(() => [] as import('@/services/sportsDbService').SDBMatchEvent[]),
+      sportsDbService.getLiveMatchScore(match.id).catch(() => null),
     ]);
+
+    // Immediately update liveScoresMap if the match is live or finished
+    // This ensures the events panel shows correct status even before the polling interval fires
+    if (liveScoreNow && liveScoreNow.homeScore !== null && liveScoreNow.awayScore !== null &&
+        (liveScoreNow.status === 'live' || liveScoreNow.status === 'finished')) {
+      setLiveScoresMap(prev => ({
+        ...prev,
+        [match.id]: {
+          homeScore: liveScoreNow.homeScore!,
+          awayScore: liveScoreNow.awayScore!,
+          status: liveScoreNow.status as 'live' | 'finished',
+          minute: liveScoreNow.minute,
+          rawStatus: liveScoreNow.rawStatus,
+          homeScorers: prev[match.id]?.homeScorers ?? [],
+          awayScorers: prev[match.id]?.awayScorers ?? [],
+        },
+      }));
+    }
 
     // Save squad context for lineup fallback
     if (sdbContext) {
@@ -1025,13 +1045,15 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     }
 
     // Apply real events from TheSportsDB
+    // Normalize type to 'goal' for defensive safety — penalty/owngoal keep their own types
+    // but add readable detail labels so icons are always unambiguous
     if (sdbEvents.length > 0) {
       setMatchEvents(sdbEvents.map(e => ({
         minute: e.minute,
         type: e.type,
         team: e.team,
         player: e.player,
-        detail: e.detail,
+        detail: e.type === 'penalty' ? (e.detail ?? 'Penalti') : e.type === 'owngoal' ? (e.detail ?? 'En propia') : e.detail,
       })));
     }
 
@@ -1097,8 +1119,11 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         setAnalysis(fallback);
         const estimated = generateEstimatedEvents(match, fallback);
         setEstimatedEvents(estimated);
-      } catch {
-        setAnalysisError(true); // truly last resort
+      } catch (e2) {
+        // Absolute last resort — never show error screen, just log and leave analysis=null
+        // (shows blank analysis area, better than "API key" error message)
+        console.warn('[WikiBet] Local fallback also failed:', e2);
+        // analysisError stays false — no error screen shown
       }
     } finally {
       setAnalysisLoading(false);

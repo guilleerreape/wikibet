@@ -18,8 +18,8 @@ interface MatchEventsPanelProps {
 function getEventIcon(type: MatchEvent['type']): string {
   switch (type) {
     case 'goal': return '⚽';
-    case 'penalty': return '🎯';
-    case 'owngoal': return '😬';
+    case 'penalty': return '⚽';   // penalty = goal scored from spot — use same ball icon
+    case 'owngoal': return '⚽';   // own goal = still a goal (detail shows "En propia")
     case 'yellow': return '🟨';
     case 'red': return '🟥';
     case 'sub': return '↕️';
@@ -141,8 +141,9 @@ export default function MatchEventsPanel({
   // Use real API rawStatus for halftime — never rely on computed elapsed time
   const isHalftime = status === 'live' && rawStatus === 'HT';
 
-  // For upcoming matches: show UpcomingReadyPanel on top, then estimated events below
-  if (status === 'upcoming') {
+  // For upcoming matches with NO real events yet: show UpcomingReadyPanel + estimated events
+  // If real events exist (match already kicked off despite upcoming status), fall through to normal view
+  if (status === 'upcoming' && events.length === 0) {
     return (
       <View style={[styles.panel, { borderColor: '#1f2937' }]}>
         <UpcomingReadyPanel homeTeam={homeTeam} awayTeam={awayTeam} matchDate={matchDate} />
@@ -155,7 +156,7 @@ export default function MatchEventsPanel({
                 const isSub = ev.type === 'sub';
                 const parts = isSub && ev.detail ? ev.detail.split('→') : null;
                 return (
-                  <View key={i} style={[styles.eventRow, ev.type === 'goal' && styles.eventRowGoal]}>
+                  <View key={i} style={[styles.eventRow, (ev.type === 'goal' || ev.type === 'penalty' || ev.type === 'owngoal') && styles.eventRowGoal]}>
                     <Text style={styles.eventMinute}>{ev.minute}'</Text>
                     <Text style={styles.eventIcon}>{getEventIcon(ev.type)}</Text>
                     <View style={styles.eventPlayerWrap}>
@@ -219,7 +220,7 @@ export default function MatchEventsPanel({
             const parts = isSub && ev.detail ? ev.detail.split('→') : null;
             const rowStyle = [
               styles.eventRow,
-              ev.type === 'goal' && styles.eventRowGoal,
+              (ev.type === 'goal' || ev.type === 'penalty' || ev.type === 'owngoal') && styles.eventRowGoal,
               ev.type === 'yellow' && styles.eventRowYellow,
               ev.type === 'red' && styles.eventRowRed,
             ];
