@@ -897,16 +897,19 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       setAnalysis(result);
 
       // ── BUILD LINEUP from AI + squad data, update pitch if still empty ──────
-      // buildPredictedLineup merges AI names, TheSportsDB squad, and wcSquads fallback.
-      // Only updates if current lineup has fewer than 5 players (wcSquads may already be shown).
-      setMatchLineup(prev => {
-        const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
-        if (currentCount >= 10) return prev; // already have a good lineup, keep it
-        const aiLineup = buildPredictedLineup(match.homeTeam, match.awayTeam, result, sdbContext);
-        const aiCount = aiLineup.homePlayers.length + aiLineup.awayPlayers.length;
-        if (aiCount > currentCount) return aiLineup;
-        return prev;
-      });
+      // If TheSportsDB returned a real lineup (>= 8 players), keep it and skip AI.
+      // Otherwise merge AI names, TheSportsDB squad, and wcSquads fallback.
+      const sdbLineupCount = (sdbLineup?.homePlayers.length ?? 0) + (sdbLineup?.awayPlayers.length ?? 0);
+      if (sdbLineupCount < 8) {
+        setMatchLineup(prev => {
+          const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
+          if (currentCount >= 10) return prev; // already have a good lineup, keep it
+          const aiLineup = buildPredictedLineup(match.homeTeam, match.awayTeam, result, sdbContext);
+          const aiCount = aiLineup.homePlayers.length + aiLineup.awayPlayers.length;
+          if (aiCount > currentCount) return aiLineup;
+          return prev;
+        });
+      }
 
       // Generate estimated events for static/finished matches with no ESPN data
       if (match.status === 'finished' || match.status === 'live') {
@@ -965,12 +968,57 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
   }, [filtered]);
 
   // ─── Standings ──────────────────────────────────────────────────────────────
-  const StandingsRow = ({ row, i }: { row: StandingEntry; i: number }) => (
+
+  function applyLiveAdjustments(
+    standingsArr: StandingEntry[],
+    matchesArr: CompetitionMatch[],
+    liveMap: typeof liveScoresMap,
+  ): (StandingEntry & { liveAdjusted?: boolean })[] {
+    // Deep copy
+    const adjusted: (StandingEntry & { liveAdjusted?: boolean })[] = standingsArr.map(s => ({ ...s }));
+
+    for (const [matchId, liveData] of Object.entries(liveMap)) {
+      if (liveData.status !== 'live' && liveData.status !== 'finished') continue;
+      const match = matchesArr.find(m => m.id === matchId);
+      if (!match) continue;
+      const hs = liveData.homeScore ?? 0;
+      const as_ = liveData.awayScore ?? 0;
+
+      let homeProvisional = 0;
+      let awayProvisional = 0;
+      if (hs > as_) { homeProvisional = 3; awayProvisional = 0; }
+      else if (hs === as_) { homeProvisional = 1; awayProvisional = 1; }
+      else { homeProvisional = 0; awayProvisional = 3; }
+
+      const homeNorm = match.homeTeam.toLowerCase();
+      const awayNorm = match.awayTeam.toLowerCase();
+
+      for (const entry of adjusted) {
+        const entryNorm = entry.team.toLowerCase();
+        if (homeNorm.includes(entryNorm) || entryNorm.includes(homeNorm)) {
+          entry.points += homeProvisional;
+          entry.liveAdjusted = true;
+        } else if (awayNorm.includes(entryNorm) || entryNorm.includes(awayNorm)) {
+          entry.points += awayProvisional;
+          entry.liveAdjusted = true;
+        }
+      }
+    }
+
+    return adjusted;
+  }
+
+  const StandingsRow = ({ row, i }: { row: StandingEntry & { liveAdjusted?: boolean }; i: number }) => (
     <View style={[styles.standingsRow, i % 2 === 0 && styles.standingsRowAlt]}>
       <Text style={[styles.tdPos, i < 2 && { color: colors.accent.green }]}>{i + 1}</Text>
       <View style={styles.tdTeamWrap}>
         {getFlag(row.team) ? <Text style={styles.tdFlag}>{getFlag(row.team)}</Text> : null}
         <Text style={styles.tdTeam} numberOfLines={1}>{row.team}</Text>
+        {row.liveAdjusted && (
+          <View style={styles.liveAdjBadge}>
+            <Text style={styles.liveAdjText}>🔴</Text>
+          </View>
+        )}
       </View>
       <Text style={styles.tdStat}>{row.played}</Text>
       <Text style={styles.tdStat}>{row.won}</Text>
@@ -1021,7 +1069,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 8 }}>
               {groupLetters.map(letter => {
-                const groupTeams = (byGroup[letter] || []).sort((a, b) => {
+                const rawGroup = byGroup[letter] || [];
+                const adjustedGroup = applyLiveAdjustments(rawGroup, matches, liveScoresMap);
+                const groupTeams = adjustedGroup.sort((a, b) => {
                   if (b.points !== a.points) return b.points - a.points;
                   if (b.gd !== a.gd) return b.gd - a.gd;
                   return b.gf - a.gf;
@@ -1040,11 +1090,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       );
     }
 
+    const adjustedStandings = applyLiveAdjustments(standings, matches, liveScoresMap);
+
     return (
       <View style={styles.standingsBg}>
         <Text style={styles.standingsTitle}>{selectedComp.emoji} Clasificación — {selectedComp.shortName}</Text>
         <TableHead />
-        {standings.map((row, i) => <StandingsRow key={row.team} row={row} i={i} />)}
+        {adjustedStandings.map((row, i) => <StandingsRow key={row.team} row={row} i={i} />)}
       </View>
     );
   };
@@ -1896,7 +1948,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
           {/* ── PITCH + EVENTOS: visible siempre (antes que la IA termine) ── */}
           {selectedMatch && (
-            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 }}>
+            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6, flexShrink: 0 }}>
               <LineupPitch
                 homeTeam={selectedMatch.homeTeam}
                 awayTeam={selectedMatch.awayTeam}
@@ -1922,21 +1974,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             </View>
           )}
 
-          {/* ── ANÁLISIS IA ── */}
-          {analysisLoading ? (
-            <View style={styles.center}>
-              <ActivityIndicator size="large" color={colors.accent.green} />
-              <Text style={styles.loadingLabel}>🤖 Analizando con IA...</Text>
-              <Text style={styles.loadingSubLabel}>Generando pronósticos detallados...</Text>
-            </View>
-          ) : analysisError ? (
-            <View style={styles.center}>
-              <Text style={styles.errorText}>⚠️ No se pudo cargar el análisis</Text>
-              <Text style={styles.errorSub}>Verifica tu API key o conexión</Text>
-            </View>
-          ) : analysis ? (
-            <AnalysisContent />
-          ) : null}
+          {/* ── ANÁLISIS IA ── flex:1 so pitch never scrolls away */}
+          <View style={{ flex: 1, overflow: 'hidden' }}>
+            {analysisLoading ? (
+              <View style={styles.center}>
+                <ActivityIndicator size="large" color={colors.accent.green} />
+                <Text style={styles.loadingLabel}>🤖 Analizando con IA...</Text>
+                <Text style={styles.loadingSubLabel}>Generando pronósticos detallados...</Text>
+              </View>
+            ) : analysisError ? (
+              <View style={styles.center}>
+                <Text style={styles.errorText}>⚠️ No se pudo cargar el análisis</Text>
+                <Text style={styles.errorSub}>Verifica tu API key o conexión</Text>
+              </View>
+            ) : analysis ? (
+              <AnalysisContent />
+            ) : null}
+          </View>
         </SafeAreaView>
       </Modal>
 
@@ -2019,6 +2073,8 @@ const styles = StyleSheet.create({
   tdFlag: { fontSize: 12 },
   tdTeam: { flex: 1, fontSize: 11, fontWeight: '600', color: colors.text.primary },
   tdStat: { width: 28, fontSize: 11, color: colors.text.primary, textAlign: 'center' },
+  liveAdjBadge: { marginLeft: 2 },
+  liveAdjText: { fontSize: 8 },
   // Date
   dateHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

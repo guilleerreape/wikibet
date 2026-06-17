@@ -101,8 +101,8 @@ export default function LineupPitch({
   const homeRowPlayers = distributeToRows(homePlayers.slice(0, 11), homeRows);
   const awayRowPlayers = distributeToRows(awayPlayers.slice(0, 11), awayRows);
 
-  // Away at top: GK at bottom of away half → reverse so attackers are at top
-  const awayRowsDisplay = [...awayRowPlayers].reverse();
+  // Away at top: GK at top of screen (away goal), FWD at bottom near center
+  const awayRowsDisplay = awayRowPlayers;
   // Home at bottom: normal order (GK row first = bottom row via column-reverse)
   const homeRowsDisplay = homeRowPlayers;
 

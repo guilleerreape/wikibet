@@ -292,8 +292,8 @@ export const sportsDbService = {
 
     // Use strStatus as the authoritative status field; strProgress may contain a number
     const strStatus = (ev.strStatus ?? '').toLowerCase().trim();
-    const strProgress = (ev.strProgress ?? '').toLowerCase().trim();
-    const combinedStatus = strStatus || strProgress;
+    const strProgressLower = (ev.strProgress ?? '').toLowerCase().trim();
+    const combinedStatus = strStatus || strProgressLower;
 
     const LIVE_STATUSES = ['1h', '2h', 'ht', 'et', 'live', 'in progress', 'pens', '1st half', '2nd half', 'half time', 'halftime'];
     const FINISHED_STATUSES = ['ft', 'finished', 'match finished', 'aet', 'full time', 'post'];
@@ -306,21 +306,25 @@ export const sportsDbService = {
     }
 
     // Detect halftime — must use REAL API status, never computed elapsed time
-    const isHT = combinedStatus === 'ht' || combinedStatus.includes('half time') || combinedStatus.includes('halftime');
+    const isHTStatus = combinedStatus === 'ht' || combinedStatus.includes('half time') || combinedStatus.includes('halftime');
     const is1H = combinedStatus === '1h' || combinedStatus.includes('1st half');
     const is2H = combinedStatus === '2h' || combinedStatus.includes('2nd half');
     const isET = combinedStatus === 'et' || combinedStatus.includes('extra time');
 
     let rawStatus: 'HT' | '1H' | '2H' | 'ET' | undefined;
-    if (isHT) rawStatus = 'HT';
+    if (isHTStatus) rawStatus = 'HT';
     else if (is2H) rawStatus = '2H';
     else if (is1H) rawStatus = '1H';
     else if (isET) rawStatus = 'ET';
 
-    // Parse actual match minute from the numeric intMinute field
-    // During HT, intMinute is typically 0 or undefined — return 45 instead
-    const apiMinute = parseInt(ev.intMinute ?? '0') || 0;
-    const minute = isHT ? 45 : (apiMinute > 0 ? apiMinute : undefined);
+    // Parse actual match minute — strProgress is "67", "45+2", "HT" etc.
+    const progressStr = (ev.strProgress ?? '').trim();
+    const isHTFromProgress = progressStr.toLowerCase() === 'ht';
+    const isHT = isHTStatus || isHTFromProgress;
+    const minuteFromProgress = parseInt(progressStr);  // NaN if "HT"
+    const minuteFromInt = parseInt(ev.intMinute ?? '');
+    const apiMinute = !isNaN(minuteFromProgress) ? minuteFromProgress : (!isNaN(minuteFromInt) ? minuteFromInt : undefined);
+    const minute = isHT ? 45 : apiMinute;
 
     return { homeScore: hs, awayScore: as_, status, minute, rawStatus };
   },
