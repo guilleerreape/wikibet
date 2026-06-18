@@ -589,7 +589,9 @@ export default function MatchesScreen() {
   const [matchWeather, setMatchWeather] = useState<{ temp: number; feelsLike: number; description: string; humidity: number; windSpeed: number; icon: string; city: string } | null>(null);
   // Goal flash: matchId → team that scored last
   const [goalFlash, setGoalFlash] = useState<Record<string, 'home' | 'away' | 'both' | null>>({});
-  const prevScoresRef = useRef<Record<string, { home: number; away: number }>>({});;
+  const prevScoresRef = useRef<Record<string, { home: number; away: number }>>({});
+  // Track which lineup checkedAt timestamps already triggered a re-analysis (avoid re-runs)
+  const lineupAnalysisTimestamps = useRef<Record<string, number>>({});
   // Timestamps de última actualización de pronósticos por matchId
   const [predTimestamps, setPredTimestamps] = useState<Record<string, number>>(() => {
     try {
@@ -759,6 +761,46 @@ export default function MatchesScreen() {
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matches.length, selectedComp.id]);
+
+  // ─── Auto-re-analyze when a confirmed lineup arrives for the open match ──────
+  // Triggers a fresh AI analysis when coaches submit the official lineup
+  useEffect(() => {
+    if (!selectedMatch) return;
+    const confirmedLineup = preMatchLineups[selectedMatch.id];
+    if (!confirmedLineup?.confirmed || !confirmedLineup.lineup) return;
+
+    const lastProcessed = lineupAnalysisTimestamps.current[selectedMatch.id] ?? 0;
+    if (confirmedLineup.checkedAt <= lastProcessed) return; // Already processed
+
+    lineupAnalysisTimestamps.current[selectedMatch.id] = confirmedLineup.checkedAt;
+
+    // Only re-analyze if we already have a baseline analysis to improve
+    if (!analysis) return;
+
+    const reAnalyzeWithConfirmedLineup = async () => {
+      try {
+        const sdbCtx = sdbCtxRef
+          ? { homeSquad: sdbCtxRef.homeSquad as any, awaySquad: sdbCtxRef.awaySquad as any, homeForm: {} as any, awayForm: {} as any }
+          : undefined;
+        const result = await advancedAIAnalysis.analyzeMatchComprehensive(
+          selectedMatch.homeTeam, selectedMatch.awayTeam, selectedMatch.league, sdbCtx
+        );
+        setAnalysis(result);
+        // Update lineup display with the confirmed one
+        const lu = confirmedLineup.lineup;
+        setMatchLineup({
+          homeFormation: lu.homeFormation ?? '4-3-3',
+          awayFormation: lu.awayFormation ?? '4-3-3',
+          homePlayers: lu.homePlayers.map((p: any) => ({ name: p.name, number: p.number, position: p.position })),
+          awayPlayers: lu.awayPlayers.map((p: any) => ({ name: p.name, number: p.number, position: p.position })),
+        });
+        setLineupConfirmed(true);
+      } catch {}
+    };
+
+    reAnalyzeWithConfirmedLineup();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preMatchLineups, selectedMatch?.id]);
 
   // ─── Auto-update weather every 10 min while modal is open ──────────────────────
   useEffect(() => {
@@ -1628,7 +1670,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     }
 
     // Extract players from AI response, filtering out generic placeholder labels
+    // Filters generic AI placeholders — includes exact phrases like "Nombre Apellido"
     const GENERIC_RE = /^(portero|delantero|defensa|medio|centrocampista|extremo|lateral|mediapunta|mediocentro|goalkeeper|defender|midfielder|forward|winger|striker|back|nombre|name|jugador|player|nombrereal|nr)[0-9]*$/i;
+    const PLACEHOLDER_PHRASE_RE = /^(nombre\s+apellido|primer\s+nombre|nombre\s+real|real\s+name|player\s+name|jugador\s+real|nombre\s+del\s+jugador|escribe_nombre_real_aqui|apellido\s+nombre)$/i;
     function extractFromAI(titulares: any[]): { name: string; number: number; position: string }[] {
       if (!titulares?.length) return [];
       return titulares
@@ -1637,7 +1681,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           number: typeof p === 'object' ? (p.dorsal ?? p.number ?? 0) : 0,
           position: typeof p === 'object' ? (p.posicion ?? p.position ?? '') : '',
         }))
-        .filter(p => p.name.length > 2 && !GENERIC_RE.test(p.name));
+        .filter(p =>
+          p.name.length > 2 &&
+          !GENERIC_RE.test(p.name) &&
+          !PLACEHOLDER_PHRASE_RE.test(p.name) &&
+          !p.name.includes('[') && // bracket-style schema placeholders
+          !p.name.includes(']'));
+
     }
 
     // ── Data sources: WC squads (trusted), SDB squad, AI analysis ──
@@ -2813,7 +2863,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
               flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
             }}>
               <Text style={{ color: '#374151', fontSize: 9, fontWeight: '600', flex: 1 }} numberOfLines={1}>
-                📍 {selectedMatch.venue ?? 'Estadio por confirmar'}
+                📍 {matchWeather?.city ?? selectedMatch.venue ?? 'Estadio por confirmar'}
               </Text>
               {matchWeather ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0f1b2d', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>

@@ -536,22 +536,24 @@ INSTRUCCIÓN APUESTAS CRÍTICA: Genera entre 10 y 15 apuestas en apuestasRecomen
 DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
 
 ⚡ COMIENZA con "alineaciones" — es el primer campo del JSON.
-⚠️ ALINEACIONES — CRÍTICO — NUNCA uses "NombreReal1", "Portero1", etc. Son placeholders PROHIBIDOS.
-   → SIEMPRE escribe los 11 nombres reales de cada equipo, aunque tengas que estimar.
-   → Para CUALQUIER selección nacional, tienes conocimiento de sus convocados activos 2025-26.
-   → Si se proporcionó PLANTILLA abajo, ÚSALA. Si no, usa tu conocimiento real.
-   → Ejemplos de ${homeTeam}: nombre del portero real, nombres de defensas reales, etc.
-   → Ejemplos de ${awayTeam}: ídem. NUNCA placeholder.
+⚠️ ALINEACIONES — ABSOLUTAMENTE CRÍTICO:
+   → NUNCA uses "Nombre Apellido", "NombreReal1", "Portero1", "Jugador X" — son PLACEHOLDERS PROHIBIDOS.
+   → En el JSON de "titulares" pon los 11 NOMBRES REALES del equipo (portero, defensas, medios, delanteros).
+   → Si conoces la formación habitual del entrenador → úsala. Si no → 4-3-3 por defecto.
+   → Para CUALQUIER selección nacional tienes conocimiento de sus convocados activos 2025-26.
+   → Si se proporcionó PLANTILLA → ÚSALA exactamente. Si no → usa tu conocimiento real.
+   → EJEMPLO CORRECTO: ["Diogo Costa","João Cancelo","Rúben Dias","Pepe","Nuno Mendes","Vitinha","Bernardo Silva","Bruno Fernandes","Rafael Leão","João Félix","Cristiano Ronaldo"]
+   → EJEMPLO INCORRECTO (PROHIBIDO): ["Nombre Apellido","Nombre Apellido",...] — NUNCA así.
 
 {
   "alineaciones": {
     "local": {
       "formacion": "formación-real (ej: 4-3-3)",
-      "titulares": ["Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido"]
+      "titulares": ["[portero real de ${homeTeam}]", "[defensa1 real]", "[defensa2 real]", "[defensa3 real]", "[defensa4 real]", "[mc1 real]", "[mc2 real]", "[mc3 real]", "[extremo1 real]", "[delantero real]", "[extremo2 real]"]
     },
     "visitante": {
       "formacion": "formación-real (ej: 4-4-2)",
-      "titulares": ["Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido"]
+      "titulares": ["[portero real de ${awayTeam}]", "[defensa1 real]", "[defensa2 real]", "[defensa3 real]", "[defensa4 real]", "[mc1 real]", "[mc2 real]", "[mc3 real]", "[extremo1 real]", "[delantero real]", "[extremo2 real]"]
     }
   },
   "resumenEjecutivo": "OBLIGATORIO: 3-4 frases 100% ÚNICAS para este partido. INCLUYE: forma reciente exacta de cada equipo, el jugador diferencial de cada lado con sus estadísticas, y el pronóstico cuantitativo (xG estimado, % victoria). PROHIBIDO frases genéricas como 'duelo intenso', 'estilos contrastados' o 'factor local decisivo'. Cada frase debe ser específica de ${homeTeam} vs ${awayTeam} hoy.",
