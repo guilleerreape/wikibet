@@ -1700,6 +1700,44 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       </View>
     );
 
+    // ─── Bet365-style table component ───
+    const Bet365Table = ({ headers, rows, accentColor = '#22c55e' }: {
+      headers: string[];
+      rows: (string | number)[][];
+      accentColor?: string;
+    }) => (
+      <View style={styles.bet365Table}>
+        <View style={styles.bet365Header}>
+          {headers.map((h, i) => (
+            <Text
+              key={i}
+              style={[
+                styles.bet365HeaderCell,
+                { width: 50 + (i === headers.length - 1 ? 2 : 0), color: i === headers.length - 1 ? colors.accent.gold : '#6A7A8E' },
+              ]}
+            >
+              {h}
+            </Text>
+          ))}
+        </View>
+        {rows.map((row, i) => (
+          <View key={i} style={[styles.bet365Row, i % 2 === 1 && styles.bet365RowAlt]}>
+            {row.map((cell, j) => (
+              <Text
+                key={j}
+                style={[
+                  j === 0 ? styles.bet365CellLabel : j === row.length - 1 ? styles.bet365CellOdds : styles.bet365CellValue,
+                  { width: 50 + (j === row.length - 1 ? 2 : 0) },
+                ]}
+              >
+                {cell}
+              </Text>
+            ))}
+          </View>
+        ))}
+      </View>
+    );
+
     try { return (
       <View style={styles.modalScroll}>
 
@@ -2037,60 +2075,39 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 local: pOver(tLocal2H, th),
                 visit: pOver(tVisit2H, th),
               })).filter(r => r.total >= 3 && r.total <= 94);
+              const formatOdds = (prob: number) => Math.max(1.10, parseFloat((100 / Math.max(1, prob) * 0.93).toFixed(2))).toFixed(2);
               return (
                 <>
                   <View style={styles.tableGroupChip}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#f97316' }]} />
                     <Text style={styles.tableGroupChipText}>Todo el partido</Text>
                   </View>
-                  <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadCell, { width: 44, textAlign: 'left' }]}>Umbral</Text>
-                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
-                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
-                    <Text style={[styles.tableHeadCell, { width: 46, color: '#f97316' }]}>Total</Text>
-                    <Text style={[styles.tableHeadCell, { width: 50, color: colors.accent.gold }]}>Cuota</Text>
-                  </View>
-                  {rowsTotal.map((r, i) => (
-                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                      <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                      <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
-                      <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
-                      <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
-                      <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                    </View>
-                  ))}
+                  <Bet365Table
+                    headers={['Umbral', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                    rows={rowsTotal.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                  />
                   {rows1H.length > 0 && (
                     <>
-                      <View style={styles.tableGroupChip}>
+                      <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                         <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
                         <Text style={styles.tableGroupChipText}>1ª Parte</Text>
                       </View>
-                      {rows1H.map((r, i) => (
-                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
-                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
-                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                        </View>
-                      ))}
+                      <Bet365Table
+                        headers={['Mercado', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                        rows={rows1H.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                      />
                     </>
                   )}
                   {rows2H.length > 0 && (
                     <>
-                      <View style={styles.tableGroupChip}>
+                      <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                         <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
                         <Text style={styles.tableGroupChipText}>2ª Parte</Text>
                       </View>
-                      {rows2H.map((r, i) => (
-                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
-                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
-                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                        </View>
-                      ))}
+                      <Bet365Table
+                        headers={['Mercado', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                        rows={rows2H.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                      />
                     </>
                   )}
                 </>
@@ -2099,15 +2116,18 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             {/* Players breakdown */}
             {pred.tiros.jugadores?.length > 0 && (
               <>
-                <Text style={[styles.subSectionTitle, { marginTop: 8 }]}>Por jugador</Text>
-                {pred.tiros.jugadores.map(j => (
-                  <View key={j.nombre} style={styles.playerRow}>
-                    <Text style={styles.playerRowFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'}</Text>
-                    <Text style={styles.playerRowName} numberOfLines={1}>{j.nombre}</Text>
-                    <Text style={styles.playerRowStat}>{j.tiros} tiros</Text>
-                    <Text style={[styles.playerRowStat, { color: '#f97316' }]}>{j.a_puerta} puerta</Text>
-                  </View>
-                ))}
+                <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
+                  <View style={[styles.tableGroupChipDot, { backgroundColor: '#f97316' }]} />
+                  <Text style={styles.tableGroupChipText}>Tiros por jugador</Text>
+                </View>
+                <Bet365Table
+                  headers={['Jugador', 'Tiros', 'A Puerta']}
+                  rows={pred.tiros.jugadores.map(j => [
+                    `${j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'} ${j.nombre}`,
+                    String(j.tiros ?? '-'),
+                    String(j.a_puerta ?? '-')
+                  ])}
+                />
               </>
             )}
           </Section>
@@ -2168,60 +2188,39 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 local: pOver(tLocal2H, th),
                 visit: pOver(tVisit2H, th),
               })).filter(r => r.total >= 3 && r.total <= 94);
+              const formatOdds = (prob: number) => Math.max(1.10, parseFloat((100 / Math.max(1, prob) * 0.93).toFixed(2))).toFixed(2);
               return (
                 <>
                   <View style={styles.tableGroupChip}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#fb923c' }]} />
                     <Text style={styles.tableGroupChipText}>Todo el partido</Text>
                   </View>
-                  <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadCell, { width: 44, textAlign: 'left' }]}>Umbral</Text>
-                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
-                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
-                    <Text style={[styles.tableHeadCell, { width: 46, color: '#fb923c' }]}>Total</Text>
-                    <Text style={[styles.tableHeadCell, { width: 50, color: colors.accent.gold }]}>Cuota</Text>
-                  </View>
-                  {rowsTotal.map((r, i) => (
-                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                      <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                      <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
-                      <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
-                      <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
-                      <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                    </View>
-                  ))}
+                  <Bet365Table
+                    headers={['Umbral', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                    rows={rowsTotal.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                  />
                   {rows1H.length > 0 && (
                     <>
-                      <View style={styles.tableGroupChip}>
+                      <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                         <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
                         <Text style={styles.tableGroupChipText}>1ª Parte</Text>
                       </View>
-                      {rows1H.map((r, i) => (
-                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
-                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
-                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                        </View>
-                      ))}
+                      <Bet365Table
+                        headers={['Mercado', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                        rows={rows1H.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                      />
                     </>
                   )}
                   {rows2H.length > 0 && (
                     <>
-                      <View style={styles.tableGroupChip}>
+                      <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                         <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
                         <Text style={styles.tableGroupChipText}>2ª Parte</Text>
                       </View>
-                      {rows2H.map((r, i) => (
-                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
-                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
-                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
-                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
-                        </View>
-                      ))}
+                      <Bet365Table
+                        headers={['Mercado', `${getFlag(selectedMatch.homeTeam)} Loc`, `${getFlag(selectedMatch.awayTeam)} Vis`, 'Total', 'Cuota']}
+                        rows={rows2H.map(r => [r.label, `${r.local}%`, `${r.visit}%`, `${r.total}%`, formatOdds(r.total)])}
+                      />
                     </>
                   )}
                 </>
@@ -2250,88 +2249,88 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 </View>
               </View>
 
-              {/* Todo el partido — Over/Under con cuotas */}
+              {/* Todo el partido */}
               <View style={styles.tableGroupChip}>
                 <View style={[styles.tableGroupChipDot, { backgroundColor: '#f59e0b' }]} />
                 <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
-                <Text style={styles.tableHeadCell}>Prob.</Text>
-                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
-              </View>
-              {[
-                { label: 'Córners +6.5',  prob: pred.corners.over6_5,  cuota: pred.corners.cuota_over8_5 },
-                { label: 'Córners +7.5',  prob: pred.corners.over7_5,  cuota: null },
-                { label: 'Córners +8.5',  prob: pred.corners.over8_5,  cuota: pred.corners.cuota_over8_5 },
-                { label: 'Córners +9.5',  prob: pred.corners.over9_5,  cuota: pred.corners.cuota_over9_5 },
-                { label: 'Córners +10.5', prob: pred.corners.over10_5, cuota: pred.corners.cuota_over10_5 },
-                { label: 'Córners +11.5', prob: pred.corners.over11_5, cuota: null },
-                { label: 'Córners -8.5',  prob: pred.corners.under8_5, cuota: null },
-              ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map((r, i) => (
-                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
-                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.cuota ? r.cuota.toFixed(2) : '-'}</Text>
-                </View>
-              ))}
+              <Bet365Table
+                headers={['Mercado', 'Prob.', 'Cuota']}
+                rows={[
+                  { label: 'Córners +6.5',  prob: pred.corners.over6_5,  cuota: pred.corners.cuota_over8_5 },
+                  { label: 'Córners +7.5',  prob: pred.corners.over7_5,  cuota: null },
+                  { label: 'Córners +8.5',  prob: pred.corners.over8_5,  cuota: pred.corners.cuota_over8_5 },
+                  { label: 'Córners +9.5',  prob: pred.corners.over9_5,  cuota: pred.corners.cuota_over9_5 },
+                  { label: 'Córners +10.5', prob: pred.corners.over10_5, cuota: pred.corners.cuota_over10_5 },
+                  { label: 'Córners +11.5', prob: pred.corners.over11_5, cuota: null },
+                ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map(r => [
+                  r.label,
+                  `${r.prob ?? '-'}%`,
+                  r.cuota ? r.cuota.toFixed(2) : '-'
+                ])}
+              />
 
               {/* 1ª Parte */}
               {(pred.corners.local_1H != null) && (
                 <>
-                  <View style={styles.tableGroupChip}>
+                  <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
                     <Text style={styles.tableGroupChipText}>1ª Parte</Text>
                   </View>
                   <View style={[styles.row3, { gap: 6, marginBottom: 6 }]}>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{(pred.corners.local_1H ?? 0) + (pred.corners.visitante_1H ?? 0)}</Text>
-                      <Text style={styles.bigStatLbl}>Total 1H</Text>
+                      <Text style={styles.bigStatLbl}>Total</Text>
                     </View>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{pred.corners.local_1H ?? 0}</Text>
-                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local 1H</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
                     </View>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{pred.corners.visitante_1H ?? 0}</Text>
-                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit. 1H</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
                     </View>
                   </View>
-                  {[
-                    { label: '1H Córners +3.5', prob: pred.corners.over3_5_1H },
-                    { label: '1H Córners +4.5', prob: pred.corners.over4_5_1H },
-                    { label: '1H Córners +5.5', prob: pred.corners.over5_5_1H },
-                  ].filter(r => r.prob != null).map((r, i) => (
-                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                      <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
-                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>-</Text>
-                    </View>
-                  ))}
+                  <Bet365Table
+                    headers={['Mercado', 'Prob.', 'Cuota']}
+                    rows={[
+                      { label: 'Córners +3.5 1H', prob: pred.corners.over3_5_1H },
+                      { label: 'Córners +4.5 1H', prob: pred.corners.over4_5_1H },
+                      { label: 'Córners +5.5 1H', prob: pred.corners.over5_5_1H },
+                    ].filter(r => r.prob != null).map(r => [r.label, `${r.prob ?? '-'}%`, '-'])}
+                  />
                 </>
               )}
 
               {/* 2ª Parte */}
               {(pred.corners.local_2H != null) && (
                 <>
-                  <View style={styles.tableGroupChip}>
+                  <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
                     <Text style={styles.tableGroupChipText}>2ª Parte</Text>
                   </View>
-                  <View style={[styles.row3, { gap: 6 }]}>
+                  <View style={[styles.row3, { gap: 6, marginBottom: 6 }]}>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{(pred.corners.local_2H ?? 0) + (pred.corners.visitante_2H ?? 0)}</Text>
-                      <Text style={styles.bigStatLbl}>Total 2H</Text>
+                      <Text style={styles.bigStatLbl}>Total</Text>
                     </View>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{pred.corners.local_2H ?? 0}</Text>
-                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local 2H</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
                     </View>
                     <View style={styles.bigStatCell}>
                       <Text style={styles.bigStatVal}>{pred.corners.visitante_2H ?? 0}</Text>
-                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit. 2H</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
                     </View>
                   </View>
+                  <Bet365Table
+                    headers={['Mercado', 'Prob.', 'Cuota']}
+                    rows={[
+                      { label: 'Córners +3.5 2H', prob: pred.corners.over3_5_2H, cuota: null },
+                      { label: 'Córners +4.5 2H', prob: pred.corners.over4_5_2H, cuota: null },
+                      { label: 'Córners +5.5 2H', prob: pred.corners.over5_5_2H, cuota: null },
+                    ].filter(r => r.prob != null).map(r => [r.label, `${r.prob ?? '-'}%`, '-'])}
+                  />
                 </>
               )}
             </>
@@ -2357,53 +2356,39 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 </View>
               </View>
 
-              {/* Over/under thresholds with odds */}
+              {/* Todo el partido */}
               <View style={styles.tableGroupChip}>
                 <View style={[styles.tableGroupChipDot, { backgroundColor: '#ef4444' }]} />
                 <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
-                <Text style={styles.tableHeadCell}>Prob.</Text>
-                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
-              </View>
-              {[
-                { label: 'Faltas +15.5', prob: pred.faltas.over15_5 },
-                { label: 'Faltas +17.5', prob: pred.faltas.over17_5 },
-                { label: 'Faltas +20.5', prob: pred.faltas.over20_5, cuota: pred.faltas.cuota_over20_5 },
-                { label: 'Faltas +24.5', prob: pred.faltas.over24_5 },
-              ].filter(r => r.prob != null).map((r, i) => (
-                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
-                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{(r as any).cuota ? ((r as any).cuota as number).toFixed(2) : '-'}</Text>
-                </View>
-              ))}
+              <Bet365Table
+                headers={['Mercado', 'Prob.', 'Cuota']}
+                rows={[
+                  { label: 'Faltas +15.5', prob: pred.faltas.over15_5, cuota: null },
+                  { label: 'Faltas +17.5', prob: pred.faltas.over17_5, cuota: null },
+                  { label: 'Faltas +20.5', prob: pred.faltas.over20_5, cuota: pred.faltas.cuota_over20_5 },
+                  { label: 'Faltas +24.5', prob: pred.faltas.over24_5, cuota: null },
+                ].filter(r => r.prob != null).map(r => [
+                  r.label,
+                  `${r.prob ?? '-'}%`,
+                  (r as any).cuota ? ((r as any).cuota as number).toFixed(2) : '-'
+                ])}
+              />
 
-              {/* Por equipo por mitad */}
+              {/* Por equipo y mitad */}
               {pred.faltas.local_1H != null && (
                 <>
-                  <View style={styles.tableGroupChip}>
+                  <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#ef4444' }]} />
                     <Text style={styles.tableGroupChipText}>Desglose por equipo</Text>
                   </View>
-                  <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Equipo</Text>
-                    <Text style={styles.tableHeadCell}>1ª P.</Text>
-                    <Text style={styles.tableHeadCell}>2ª P.</Text>
-                    <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
-                  </View>
-                  {[
-                    { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.faltas.local_1H, h2: pred.faltas.local_2H, total: pred.faltas.local },
-                    { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.faltas.visitante_1H, h2: pred.faltas.visitante_2H, total: pred.faltas.visitante },
-                  ].map((r, i) => (
-                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                      <Text style={styles.lineVal}>{r.h1 ?? '-'}</Text>
-                      <Text style={styles.lineVal}>{r.h2 ?? '-'}</Text>
-                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.total ?? '-'}</Text>
-                    </View>
-                  ))}
+                  <Bet365Table
+                    headers={['Equipo', '1ª P.', '2ª P.', 'Total']}
+                    rows={[
+                      { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.faltas.local_1H, h2: pred.faltas.local_2H, total: pred.faltas.local },
+                      { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.faltas.visitante_1H, h2: pred.faltas.visitante_2H, total: pred.faltas.visitante },
+                    ].map(r => [r.label, String(r.h1 ?? '-'), String(r.h2 ?? '-'), String(r.total ?? '-')])}
+                  />
                 </>
               )}
             </>
@@ -2430,61 +2415,47 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 </View>
               </View>
 
-              {/* Over/under thresholds with odds */}
+              {/* Todo el partido */}
               <View style={styles.tableGroupChip}>
                 <View style={[styles.tableGroupChipDot, { backgroundColor: '#fbbf24' }]} />
                 <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
-                <Text style={styles.tableHeadCell}>Prob.</Text>
-                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
-              </View>
-              {[
-                { label: '🟨 +1.5 tarjetas', prob: pred.tarjetas.over1_5, cuota: null },
-                { label: '🟨 +2.5 tarjetas', prob: pred.tarjetas.over2_5, cuota: pred.tarjetas.cuota_over2_5 },
-                { label: '🟨 +3.5 tarjetas', prob: pred.tarjetas.over3_5, cuota: pred.tarjetas.cuota_over3_5 },
-                { label: '🟨 +4.5 tarjetas', prob: pred.tarjetas.over4_5, cuota: null },
-                { label: '🟨 +5.5 tarjetas', prob: pred.tarjetas.over5_5, cuota: null },
-                { label: '🟨 -3.5 tarjetas', prob: pred.tarjetas.under3_5, cuota: null },
-              ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map((r, i) => (
-                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.gold : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
-                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.cuota ? (r.cuota as number).toFixed(2) : '-'}</Text>
-                </View>
-              ))}
+              <Bet365Table
+                headers={['Mercado', 'Prob.', 'Cuota']}
+                rows={[
+                  { label: '🟨 +1.5 tarjetas', prob: pred.tarjetas.over1_5, cuota: null },
+                  { label: '🟨 +2.5 tarjetas', prob: pred.tarjetas.over2_5, cuota: pred.tarjetas.cuota_over2_5 },
+                  { label: '🟨 +3.5 tarjetas', prob: pred.tarjetas.over3_5, cuota: pred.tarjetas.cuota_over3_5 },
+                  { label: '🟨 +4.5 tarjetas', prob: pred.tarjetas.over4_5, cuota: null },
+                  { label: '🟨 +5.5 tarjetas', prob: pred.tarjetas.over5_5, cuota: null },
+                  { label: '🟨 -3.5 tarjetas', prob: pred.tarjetas.under3_5, cuota: null },
+                ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map(r => [
+                  r.label,
+                  `${r.prob ?? '-'}%`,
+                  r.cuota ? (r.cuota as number).toFixed(2) : '-'
+                ])}
+              />
 
               {pred.tarjetas.rojaProb > 0 && (
-                <Text style={[styles.bodyText, { marginTop: 6, color: colors.accent.red }]}>
+                <Text style={[styles.bodyText, { marginTop: 8, marginBottom: 8, color: colors.accent.red, fontWeight: '600' }]}>
                   🟥 Probabilidad de roja: {pred.tarjetas.rojaProb}%
                 </Text>
               )}
 
-              {/* Por equipo por mitad */}
+              {/* Por equipo y mitad */}
               {pred.tarjetas.amarillas_local_1H != null && (
                 <>
-                  <View style={styles.tableGroupChip}>
+                  <View style={[styles.tableGroupChip, { marginTop: 10 }]}>
                     <View style={[styles.tableGroupChipDot, { backgroundColor: '#fbbf24' }]} />
                     <Text style={styles.tableGroupChipText}>Desglose por equipo</Text>
                   </View>
-                  <View style={styles.tableHeader}>
-                    <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Equipo</Text>
-                    <Text style={styles.tableHeadCell}>1ª P.</Text>
-                    <Text style={styles.tableHeadCell}>2ª P.</Text>
-                    <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
-                  </View>
-                  {[
-                    { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.tarjetas.amarillas_local_1H, h2: (pred.tarjetas.amarillas_local ?? 0) - (pred.tarjetas.amarillas_local_1H ?? 0), total: pred.tarjetas.amarillas_local },
-                    { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.tarjetas.amarillas_visitante_1H, h2: (pred.tarjetas.amarillas_visitante ?? 0) - (pred.tarjetas.amarillas_visitante_1H ?? 0), total: pred.tarjetas.amarillas_visitante },
-                  ].map((r, i) => (
-                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
-                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
-                      <Text style={styles.lineVal}>{r.h1 ?? '-'}</Text>
-                      <Text style={styles.lineVal}>{r.h2 ?? '-'}</Text>
-                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.total ?? '-'}</Text>
-                    </View>
-                  ))}
+                  <Bet365Table
+                    headers={['Equipo', '1ª P.', '2ª P.', 'Total']}
+                    rows={[
+                      { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.tarjetas.amarillas_local_1H, h2: (pred.tarjetas.amarillas_local ?? 0) - (pred.tarjetas.amarillas_local_1H ?? 0), total: pred.tarjetas.amarillas_local },
+                      { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.tarjetas.amarillas_visitante_1H, h2: (pred.tarjetas.amarillas_visitante ?? 0) - (pred.tarjetas.amarillas_visitante_1H ?? 0), total: pred.tarjetas.amarillas_visitante },
+                    ].map(r => [r.label, String(r.h1 ?? '-'), String(r.h2 ?? '-'), String(r.total ?? '-')])}
+                  />
                 </>
               )}
 
@@ -3281,4 +3252,37 @@ const styles = StyleSheet.create({
   liveMarketHit: { backgroundColor: '#22c55e20', borderColor: '#22c55e50' },
   liveMarketOpen: { backgroundColor: colors.bg.card, borderColor: colors.border.subtle },
   liveMarketText: { fontSize: 10, fontWeight: '600', color: colors.text.primary },
+  // ─── BET365-style table ───
+  bet365Table: { marginBottom: 12 },
+  bet365Header: {
+    flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: '#161D28', borderTopLeftRadius: 8, borderTopRightRadius: 8,
+    borderBottomWidth: 1.5, borderBottomColor: '#1C2535',
+  },
+  bet365HeaderCell: {
+    fontSize: 9, fontWeight: '700', color: '#6A7A8E', textAlign: 'center',
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+  bet365Row: {
+    flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 6,
+    borderBottomWidth: 1, borderBottomColor: '#1C2535',
+    backgroundColor: 'transparent',
+  },
+  bet365RowAlt: { backgroundColor: '#ffffff04' },
+  bet365CellLabel: {
+    flex: 0, width: 50, fontSize: 11, fontWeight: '700', color: colors.text.primary,
+    textAlign: 'center',
+  },
+  bet365CellValue: {
+    flex: 0, width: 50, fontSize: 11, fontWeight: '600', color: colors.text.primary,
+    textAlign: 'center',
+  },
+  bet365CellValueBold: {
+    flex: 0, width: 50, fontSize: 12, fontWeight: '800', color: colors.text.primary,
+    textAlign: 'center',
+  },
+  bet365CellOdds: {
+    flex: 0, width: 52, fontSize: 12, fontWeight: '700', color: colors.accent.gold,
+    textAlign: 'center',
+  },
 });
