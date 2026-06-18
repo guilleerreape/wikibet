@@ -1805,6 +1805,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         </Section>
 
+        {/* APUESTA DE LA IA — between Conclusion and 1X2 */}
+        <AiBetPanel match={selectedMatch} analysis={analysis} />
+
         {/* 1X2 */}
         <Section icon="🎯" title="PROBABILIDADES 1X2" accent="#22c55e" delay={160}>
           <View style={styles.row3}>
@@ -2593,9 +2596,6 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             ))}
           </View>
         </Section>
-
-        {/* PANEL APUESTA DE LA IA — aquí, después de todos los análisis */}
-        <AiBetPanel match={selectedMatch} analysis={analysis} />
 
         {/* APUESTAS CON VALOR */}
         {analysis.apuestasRecomendadas?.length > 0 && (
