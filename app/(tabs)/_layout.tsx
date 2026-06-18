@@ -1,12 +1,13 @@
 import { Tabs } from 'expo-router';
-import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking, Animated, Platform } from 'react-native';
-import { useState, useRef, useEffect } from 'react';
+import { TouchableOpacity, Text, View, StyleSheet, Modal, Pressable, Linking, Animated, Platform, ScrollView } from 'react-native';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
 import { getQuickStats, seedHistoricalData } from '@/services/predictionTracker';
 import AccuracyModal from '@/components/AccuracyModal';
+import { getPredictionChanges, formatChange, clearPredictionChanges, type PredictionChange } from '@/services/predictionChangeLog';
 
 const STRIPE_BASE = 'https://buy.stripe.com/bJeaEXbVg6vh6QJ19S0kE00';
 
@@ -426,10 +427,164 @@ function AccuracyButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+// ─── Admin prediction change log overlay ─────────────────────────────────────
+function AdminPanel({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const [changes, setChanges] = useState<PredictionChange[]>([]);
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const glowAnim  = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+
+  const reload = useCallback(() => {
+    const all = getPredictionChanges();
+    setChanges([...all]); // oldest→newest
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    reload();
+    // Slide up entrance
+    Animated.spring(slideAnim, { toValue: 1, useNativeDriver: true, damping: 18, stiffness: 200 }).start();
+    // Glow animation on header
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 1600, useNativeDriver: false }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 1600, useNativeDriver: false }),
+      ])
+    ).start();
+    // Poll every 5s for new changes
+    const interval = setInterval(reload, 5000);
+    return () => {
+      clearInterval(interval);
+      slideAnim.setValue(0);
+      glowAnim.stopAnimation();
+    };
+  }, [visible, reload]);
+
+  // Auto-scroll to bottom (newest) when changes update
+  useEffect(() => {
+    if (visible && changes.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [changes, visible]);
+
+  const translateY = slideAnim.interpolate({ inputRange: [0, 1], outputRange: [60, 0] });
+  const headerColor = glowAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['#f59e0b', '#ef4444', '#f59e0b'] });
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={ap.backdrop} onPress={onClose}>
+        <Animated.View style={[ap.panel, { transform: [{ translateY }] }]} onStartShouldSetResponder={() => true}>
+
+          {/* ── Header ── */}
+          <View style={ap.header}>
+            <View style={ap.headerLeft}>
+              <Animated.Text style={[ap.headerTitle, { color: headerColor }]}>
+                👑 ADMIN — Cambios de Pronóstico IA
+              </Animated.Text>
+              <Text style={ap.headerSub}>Últimos {changes.length}/10 cambios · actualización automática</Text>
+            </View>
+            <View style={ap.headerRight}>
+              <TouchableOpacity
+                style={ap.clearBtn}
+                onPress={() => { clearPredictionChanges(); reload(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={ap.clearText}>🗑️ Borrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={ap.closeBtn} activeOpacity={0.7}>
+                <Text style={ap.closeText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* ── Live indicator ── */}
+          <LiveDot />
+
+          {/* ── Change list (oldest → newest) ── */}
+          <ScrollView
+            ref={scrollRef}
+            style={ap.scroll}
+            contentContainerStyle={ap.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {changes.length === 0 ? (
+              <View style={ap.emptyWrap}>
+                <Text style={ap.emptyEmoji}>📊</Text>
+                <Text style={ap.emptyText}>Sin cambios de pronóstico registrados aún.</Text>
+                <Text style={ap.emptyHint}>Los cambios aparecen cuando la IA re-analiza un partido y las probabilidades varían ≥2 puntos.</Text>
+              </View>
+            ) : (
+              changes.map((c, idx) => (
+                <ChangeRow key={c.id} change={c} index={idx} total={changes.length} />
+              ))
+            )}
+          </ScrollView>
+
+        </Animated.View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function LiveDot() {
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.5, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1,   duration: 700, useNativeDriver: true }),
+      ])
+    ).start();
+    return () => pulse.stopAnimation();
+  }, []);
+  return (
+    <View style={ap.liveRow}>
+      <Animated.View style={[ap.liveDot, { transform: [{ scale: pulse }] }]} />
+      <Text style={ap.liveText}>EN VIVO</Text>
+    </View>
+  );
+}
+
+function ChangeRow({ change, index, total }: { change: PredictionChange; index: number; total: number }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 300 + index * 60, useNativeDriver: true }).start();
+  }, []);
+
+  const isNewest = index === total - 1;
+  const delta = change.newValue - change.oldValue;
+  const deltaColor = delta > 0 ? '#22c55e' : '#ef4444';
+  const deltaSymbol = delta > 0 ? '▲' : '▼';
+
+  return (
+    <Animated.View style={[ap.changeRow, isNewest && ap.changeRowNewest, { opacity: fadeAnim }]}>
+      <View style={ap.changeIndex}>
+        <Text style={ap.changeIndexText}>{index + 1}</Text>
+      </View>
+      <View style={ap.changeBody}>
+        <Text style={ap.changeText} numberOfLines={3}>
+          {formatChange(change)}
+        </Text>
+        <View style={ap.changeMeta}>
+          <Text style={[ap.changeDelta, { color: deltaColor }]}>
+            {deltaSymbol} {Math.abs(delta)}pp
+          </Text>
+          <View style={[ap.changeType, { borderColor: '#374151' }]}>
+            <Text style={ap.changeTypeText}>{change.type}</Text>
+          </View>
+          {isNewest && <View style={ap.newBadge}><Text style={ap.newBadgeText}>NUEVO</Text></View>}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
 // ─── Layout ───────────────────────────────────────────────────────────────────
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const [accuracyVisible, setAccuracyVisible] = useState(false);
+  const [adminPanelVisible, setAdminPanelVisible] = useState(false);
+  const { bypassActive } = useAuth();
   // En móvil web, añadir padding extra para que no tape la barra del navegador
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
   const tabBarH   = 58 + bottomPad;
@@ -536,11 +691,76 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
+      {/* Admin tab — only rendered in tab bar when bypassActive (code 130823) */}
+      <Tabs.Screen
+        name="admin"
+        options={{
+          href: null,
+          tabBarButton: bypassActive
+            ? () => (
+                <AdminTabButton onPress={() => setAdminPanelVisible(true)} />
+              )
+            : () => null,
+        }}
+      />
     </Tabs>
     <AccuracyModal visible={accuracyVisible} onClose={() => setAccuracyVisible(false)} />
+    {bypassActive && (
+      <AdminPanel visible={adminPanelVisible} onClose={() => setAdminPanelVisible(false)} />
+    )}
     </>
   );
 }
+
+// ─── Admin tab button ─────────────────────────────────────────────────────────
+function AdminTabButton({ onPress }: { onPress: () => void }) {
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const insets    = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+      ])
+    ).start();
+    return () => pulseAnim.stopAnimation();
+  }, []);
+
+  const borderColor = pulseAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#f59e0b', '#ef4444', '#f59e0b'],
+  });
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      style={[adm.tabBtn, { paddingBottom: bottomPad }]}
+    >
+      <Animated.View style={[adm.tabInner, { borderColor }]}>
+        <Text style={adm.tabEmoji}>🔐</Text>
+        <Text style={adm.tabLabel}>Admin</Text>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
+const adm = StyleSheet.create({
+  tabBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'flex-end',
+    paddingTop: 6,
+  },
+  tabInner: {
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderRadius: 10,
+    paddingHorizontal: 6, paddingVertical: 3,
+    backgroundColor: '#1a0a00',
+  },
+  tabEmoji: { fontSize: 18 },
+  tabLabel: { fontSize: 9, color: '#f59e0b', fontWeight: '800', marginTop: 2, letterSpacing: 0.2 },
+});
 
 // ─── Estilos header ───────────────────────────────────────────────────────────
 const s = StyleSheet.create({
@@ -626,4 +846,148 @@ const m = StyleSheet.create({
   menuItemText: { fontSize: 14, color: '#e5e7eb', fontWeight: '600' },
   menuItemSub:  { fontSize: 11, color: '#6b7280', marginTop: 1 },
   menuItemArrow: { fontSize: 20, color: '#4b5563' },
+});
+
+// ─── Estilos Admin Panel ──────────────────────────────────────────────────────
+const ap = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  panel: {
+    backgroundColor: '#030712',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: '#f59e0b40',
+    maxHeight: '80%',
+    paddingBottom: 24,
+  },
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  headerLeft: { flex: 1 },
+  headerTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  headerSub: {
+    fontSize: 10,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  clearBtn: {
+    backgroundColor: '#1f1208',
+    borderRadius: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#f59e0b40',
+  },
+  clearText: { fontSize: 11, color: '#f59e0b', fontWeight: '700' },
+  closeBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#1f2937',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  closeText: { fontSize: 14, color: '#9ca3af', fontWeight: '700' },
+  // Live dot
+  liveRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingBottom: 8,
+  },
+  liveDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#22c55e',
+    shadowColor: '#22c55e', shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1, shadowRadius: 4,
+  },
+  liveText: { fontSize: 10, color: '#22c55e', fontWeight: '900', letterSpacing: 1.2 },
+  // Scroll
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 12, paddingBottom: 8 },
+  // Empty state
+  emptyWrap: {
+    alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20,
+  },
+  emptyEmoji: { fontSize: 40, marginBottom: 12 },
+  emptyText: {
+    fontSize: 14, color: '#9ca3af', fontWeight: '600', textAlign: 'center', marginBottom: 8,
+  },
+  emptyHint: {
+    fontSize: 11, color: '#4b5563', textAlign: 'center', lineHeight: 16,
+  },
+  // Change row
+  changeRow: {
+    flexDirection: 'row',
+    backgroundColor: '#0d1117',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  changeRowNewest: {
+    borderColor: '#f59e0b60',
+    backgroundColor: '#0d0a00',
+  },
+  changeIndex: {
+    width: 28,
+    backgroundColor: '#111827',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#1f2937',
+  },
+  changeIndexText: { fontSize: 11, color: '#4b5563', fontWeight: '700' },
+  changeBody: {
+    flex: 1,
+    padding: 10,
+    gap: 6,
+  },
+  changeText: {
+    fontSize: 11,
+    color: '#d1d5db',
+    lineHeight: 16,
+  },
+  changeMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  changeDelta: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  changeType: {
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  changeTypeText: { fontSize: 10, color: '#9ca3af', fontWeight: '700' },
+  newBadge: {
+    backgroundColor: '#f59e0b20',
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: '#f59e0b60',
+  },
+  newBadgeText: { fontSize: 9, color: '#f59e0b', fontWeight: '900', letterSpacing: 0.5 },
 });

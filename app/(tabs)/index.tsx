@@ -24,6 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
+import { diffAndLogAnalysis } from '@/services/predictionChangeLog';
 import { sportsDbService } from '@/services/sportsDbService';
 import { getWcSquad } from '@/services/wcSquads';
 import { getVenueWeather } from '@/services/weatherService';
@@ -560,6 +561,33 @@ export default function MatchesScreen() {
   const [analysis, setAnalysis] = useState<AdvancedMatchAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState(false);
+  const prevAnalysisRef = useRef<AdvancedMatchAnalysis | null>(null);
+
+  // Wrapper that logs probability changes before updating state
+  const setAnalysisWithLog = useCallback((result: AdvancedMatchAnalysis | null, matchLabel?: string) => {
+    if (result && prevAnalysisRef.current && matchLabel) {
+      const prev = prevAnalysisRef.current;
+      diffAndLogAnalysis(matchLabel, {
+        homeWinProbability: prev.homeWinProbability,
+        drawProbability:    prev.drawProbability,
+        awayWinProbability: prev.awayWinProbability,
+        over2_5:            prev.totalGoalsProbability?.over2_5 ?? 0,
+        over1_5:            prev.totalGoalsProbability?.over1_5 ?? 0,
+        bothTeamsScoredYes: prev.bothTeamsScore?.yes ?? 0,
+        confidence:         prev.confidence,
+      }, {
+        homeWinProbability: result.homeWinProbability,
+        drawProbability:    result.drawProbability,
+        awayWinProbability: result.awayWinProbability,
+        over2_5:            result.totalGoalsProbability?.over2_5 ?? 0,
+        over1_5:            result.totalGoalsProbability?.over1_5 ?? 0,
+        bothTeamsScoredYes: result.bothTeamsScore?.yes ?? 0,
+        confidence:         result.confidence,
+      });
+    }
+    if (result) prevAnalysisRef.current = result;
+    setAnalysis(result);
+  }, []);
   const [postMatchComment, setPostMatchComment] = useState<string | null>(null);
   const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
@@ -787,7 +815,7 @@ export default function MatchesScreen() {
         const result = await advancedAIAnalysis.analyzeMatchComprehensive(
           selectedMatch.homeTeam, selectedMatch.awayTeam, selectedMatch.league, sdbCtx
         );
-        setAnalysis(result);
+        setAnalysisWithLog(result, `${selectedMatch.homeTeam} - ${selectedMatch.awayTeam}`);
         // Update lineup display with the confirmed one
         const lu = confirmedLineup.lineup;
         setMatchLineup({
@@ -899,7 +927,7 @@ export default function MatchesScreen() {
         const result = await advancedAIAnalysis.analyzeMatchComprehensive(
           selectedMatch.homeTeam, selectedMatch.awayTeam, selectedMatch.league, sdbCtx
         );
-        setAnalysis(result);
+        setAnalysisWithLog(result, `${selectedMatch.homeTeam} - ${selectedMatch.awayTeam}`);
         savePredTimestamp(selectedMatch.id);
       } catch {}
     };
@@ -1222,7 +1250,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined,
         match.venue,
       );
-      setAnalysis(result);  // Replace local analysis with AI result
+      setAnalysisWithLog(result, `${match.homeTeam} - ${match.awayTeam}`);  // Replace local analysis with AI result
 
       // ── BUILD LINEUP from AI + squad data, update pitch if still empty ──────
       const sdbLineupCount = (sdbLineup?.homePlayers.length ?? 0) + (sdbLineup?.awayPlayers.length ?? 0);
