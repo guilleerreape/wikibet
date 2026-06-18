@@ -138,7 +138,7 @@ const STATIC: Record<string, CompetitionMatch[]> = {
     { id:'wc_j2', homeTeam:'Austria',         awayTeam:'Jordania',      homeScore:2, awayScore:1, date:'2026-06-17T04:00:00Z', status:'finished', league:'Mundial 2026 · Grupo J', leagueId:'FIFA.WORLD', venue:'SoFi Stadium, Los Ángeles' },
     // ── HOY 17 JUNIO (PENDIENTES) ─────────────────────────
     { id:'wc_k1', homeTeam:'Portugal',        awayTeam:'R.D. Congo',    homeScore:1, awayScore:1, date:'2026-06-17T17:00:00Z', status:'finished', league:'Mundial 2026 · Grupo K', leagueId:'FIFA.WORLD', venue:'Gillette Stadium, Boston' },
-    { id:'wc_l1', homeTeam:'Inglaterra',      awayTeam:'Croacia',       homeScore:null, awayScore:null, date:'2026-06-17T20:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo L', leagueId:'FIFA.WORLD', venue:'Rose Bowl, Los Ángeles' },
+    { id:'wc_l1', homeTeam:'Inglaterra',      awayTeam:'Croacia',       homeScore:2, awayScore:1, date:'2026-06-17T20:00:00Z', status:'finished', league:'Mundial 2026 · Grupo L', leagueId:'FIFA.WORLD', venue:'Rose Bowl, Los Ángeles' },
     { id:'wc_l2', homeTeam:'Ghana',           awayTeam:'Panamá',        homeScore:null, awayScore:null, date:'2026-06-17T23:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo L', leagueId:'FIFA.WORLD', venue:'Hard Rock Stadium, Miami' },
     { id:'wc_k2', homeTeam:'Uzbekistán',      awayTeam:'Colombia',      homeScore:null, awayScore:null, date:'2026-06-18T02:00:00Z', status:'upcoming', league:'Mundial 2026 · Grupo K', leagueId:'FIFA.WORLD', venue:'Arrowhead Stadium, Kansas City' },
     // Jornada 2
@@ -476,9 +476,10 @@ export async function getMatchDetails(leagueId: string, matchId: string): Promis
   }
 }
 
-// Calcula clasificación del Mundial dinámicamente de los partidos jugados en STATIC
-function computeWCStandings(): StandingEntry[] {
-  // Inicializar todos los equipos desde WC_GROUPS_STATIC (para tener el group label)
+// Calcula clasificación del Mundial dinámicamente a partir de los partidos jugados.
+// Acepta un array de partidos (puede ser live de ESPN) o usa STATIC como fallback.
+function computeWCStandings(liveMatches?: CompetitionMatch[]): StandingEntry[] {
+  // Inicializar todos los equipos desde WC_GROUPS_STATIC
   const teamMap: Record<string, StandingEntry & { group: string }> = {};
   for (const [group, teams] of Object.entries(WC_GROUPS_STATIC)) {
     for (const t of teams) {
@@ -486,24 +487,26 @@ function computeWCStandings(): StandingEntry[] {
     }
   }
 
-  // Función de búsqueda fuzzy para emparejar nombre de equipo
+  // Búsqueda fuzzy para emparejar nombre de equipo
   const findTeam = (name: string) => {
-    const n = name.toLowerCase();
+    const n = name.toLowerCase().replace(/[.\s]/g, '');
     return Object.values(teamMap).find(t => {
-      const tn = t.team.toLowerCase();
+      const tn = t.team.toLowerCase().replace(/[.\s]/g, '');
       return tn === n || n.includes(tn) || tn.includes(n);
     });
   };
 
-  // Procesar todos los partidos terminados del Mundial
-  for (const match of (STATIC['FIFA.WORLD'] || [])) {
+  // Usar live si disponibles, si no STATIC
+  const matchesToProcess = liveMatches ?? (STATIC['FIFA.WORLD'] || []);
+
+  for (const match of matchesToProcess) {
     if (match.status !== 'finished' || match.homeScore == null || match.awayScore == null) continue;
     const home = findTeam(match.homeTeam);
     const away = findTeam(match.awayTeam);
     if (!home || !away) continue;
 
-    const hs = match.homeScore;
-    const as_ = match.awayScore;
+    const hs = match.homeScore as number;
+    const as_ = match.awayScore as number;
 
     home.played++; home.gf += hs; home.ga += as_;
     away.played++; away.gf += as_; away.ga += hs;
@@ -529,7 +532,7 @@ export const espnMatchService = {
 
     try {
       const isWC = competitionId === 'FIFA.WORLD';
-      const dateParam = isWC ? '?dates=20260616-20260731' : '';
+      const dateParam = isWC ? '?dates=20260611-20260731' : '';
       const url = `${ESPN_BASE}/${comp.espnSlug}/scoreboard${dateParam}`;
       const response = await fetchWithTimeout(url, 8000);
       if (!response.ok) return STATIC[competitionId] || [];
@@ -578,8 +581,56 @@ export const espnMatchService = {
   },
 
   async getStandings(competitionId: string): Promise<StandingEntry[]> {
-    // Para el Mundial calcular clasificaciones dinámicamente de los partidos jugados
+    // Para el Mundial: intentar primero ESPN standings API, luego calcular desde partidos live
     if (competitionId === 'FIFA.WORLD') {
+      // 1. Try ESPN standings endpoint
+      try {
+        const url = `https://site.api.espn.com/apis/v2/sports/soccer/fifa.world/standings`;
+        const res = await fetchWithTimeout(url, 6000);
+        if (res.ok) {
+          const data = await res.json();
+          const allGroups: any[] = data.children || [];
+          const entries: StandingEntry[] = [];
+          for (const group of allGroups) {
+            const rawEntries: any[] = group?.standings?.entries || [];
+            rawEntries.forEach((entry: any) => {
+              const teamName = t(entry.team?.displayName || entry.team?.name || '');
+              if (!teamName) return;
+              const stats: any[] = entry.stats || [];
+              const getStat = (abbrs: string[]) => {
+                for (const abbr of abbrs) {
+                  const s = stats.find((x: any) => x.abbreviation === abbr || x.name === abbr);
+                  if (s) return parseInt(s.value ?? '0');
+                }
+                return 0;
+              };
+              entries.push({
+                pos: entries.length + 1,
+                team: teamName,
+                played: getStat(['GP', 'gamesPlayed']),
+                won:    getStat(['W', 'wins']),
+                drawn:  getStat(['D', 'ties', 'draws']),
+                lost:   getStat(['L', 'losses']),
+                gf:     getStat(['F', 'pointsFor', 'GF', 'goalsFor']),
+                ga:     getStat(['A', 'pointsAgainst', 'GA', 'goalsAgainst']),
+                gd:     getStat(['GD', 'pointDifferential']),
+                points: getStat(['PTS', 'points', 'pts']),
+              });
+            });
+          }
+          if (entries.length >= 8) return entries;
+        }
+      } catch {}
+
+      // 2. Calcular desde partidos live de ESPN (incluye resultados nuevos)
+      try {
+        const freshMatches = await this.getMatches('FIFA.WORLD');
+        if (freshMatches.some(m => m.status === 'finished')) {
+          return computeWCStandings(freshMatches);
+        }
+      } catch {}
+
+      // 3. Fallback: calcular desde datos estáticos
       return computeWCStandings();
     }
 

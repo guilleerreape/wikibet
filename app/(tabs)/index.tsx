@@ -626,7 +626,9 @@ export default function MatchesScreen() {
 
   useEffect(() => {
     loadData(selectedComp);
-    const interval = setInterval(() => loadData(selectedComp), 90 * 1000);
+    // 30s for WC (live tournament), 90s for other leagues
+    const refreshMs = selectedComp.id === 'FIFA.WORLD' ? 30 * 1000 : 90 * 1000;
+    const interval = setInterval(() => loadData(selectedComp), refreshMs);
     return () => clearInterval(interval);
   }, [selectedComp, loadData]);
 
