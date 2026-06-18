@@ -400,7 +400,15 @@ export const advancedAIAnalysis = {
       ? sdbContext.awayForm.recentResults.join(' | ')
       : 'N/D';
 
-    const today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const now = new Date();
+    const today = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    // Mundial 2026: los partidos se juegan en EEUU/Canadá/México — terreno NEUTRO
+    const isWC = league.toLowerCase().includes('world') || league.toLowerCase().includes('mundial') || league.toLowerCase().includes('copa');
+    const venueContext = isWC
+      ? `⚠️ TERRENO NEUTRO — Este partido del Mundial 2026 se juega en EEUU/Canadá/México. NINGÚN equipo es "local" en el sentido tradicional. NO menciones "ventaja local" ni "factor casa" como argumento principal.`
+      : `SEDE: ${venue ?? 'N/D'}`;
+    const matchContext = `Análisis generado: ${today} a las ${hora}. Contexto temporal: comienza la ${league.includes('2026') ? 'fase de grupos/eliminatorias del Mundial 2026' : league}.`;
 
     // Build squad context strings from TheSportsDB data
     const homeSquadForLineup = sdbContext?.homeSquad.length
@@ -412,10 +420,12 @@ export const advancedAIAnalysis = {
 
     const prompt = `Eres el mejor analista cuantitativo de fútbol del mundo. Analiza ${homeTeam} vs ${awayTeam}.
 
+${matchContext}
+
 ═══════════════════════════════════════
 PASO 1 — CALIBRACIÓN (mentalmente antes del JSON)
 ═══════════════════════════════════════
-Evalúa calidad real de cada equipo (1-10 nivel FIFA), forma, lesiones conocidas.
+Evalúa calidad real de cada equipo (1-10 nivel FIFA), forma RECIENTE, lesiones conocidas, fatiga acumulada, importancia del partido.
 
 REGLAS OBLIGATORIAS:
 1. BTTS usa fórmula Poisson: btts_si = P(local≥1gol) × P(visitante≥1gol)
@@ -430,7 +440,12 @@ REGLAS OBLIGATORIAS:
 
 3. Over/Under DEBEN derivarse de xG con Poisson (no valores genéricos)
 
-4. ALINEACIONES — REGLAS ABSOLUTAS:
+4. COHERENCIA NUMÉRICA ABSOLUTA — CRÍTICO:
+   → Los porcentajes que escribas en resumenEjecutivo, tactico.enfoque y conclusion DEBEN coincidir EXACTAMENTE con los valores de predicciones.probabilidades.
+   → Si victoriaLocal=53 en el JSON, en el texto escribe "53%", NUNCA "73%" u otro número distinto.
+   → ANTES de escribir el JSON final, verifica que todos los porcentajes del texto coinciden con los del JSON.
+
+5. ALINEACIONES — REGLAS ABSOLUTAS:
    → NUNCA pongas "Portero", "Defensa1", "Medio2" — esos no son nombres reales.
    → Si se proporciona PLANTILLA REAL abajo: los 11 titulares DEBEN ser nombres EXACTOS de esa lista. No puedes inventar ningún jugador fuera de ella.
    → Si NO hay plantilla: usa tu conocimiento real del equipo (jugadores actuales, no retirados).
@@ -456,13 +471,14 @@ ${awaySquadForLineup ? `   ⚠️ PLANTILLA ${awayTeam} — USA SOLO ESTOS NOMBR
 DATOS DEL PARTIDO
 ═══════════════════════════════════════
 PARTIDO: ${homeTeam} vs ${awayTeam}
-COMPETICIÓN: ${league} | FECHA: ${today}
-FORMA ${homeTeam}: ${homeFormStr}
-FORMA ${awayTeam}: ${awayFormStr}
+COMPETICIÓN: ${league} | FECHA: ${today} ${hora}
+${venueContext}
+FORMA ${homeTeam} (últimos 5): ${homeFormStr}
+FORMA ${awayTeam} (últimos 5): ${awayFormStr}
 REF. SISTEMA ${homeTeam}: avgGoals=${homeTeamData?.avgGoals || 'N/D'}, winRate=${homeTeamData?.winRate || 'N/D'}%
 REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=${awayTeamData?.winRate || 'N/D'}%${weatherStr}
 
-⚠️ Tu conocimiento real prevalece sobre "REF. SISTEMA". Solo menciona jugadores de ${homeTeam} y ${awayTeam}.
+⚠️ Tu conocimiento real (plantillas 2025-26, lesiones conocidas, rendimiento reciente) prevalece sobre "REF. SISTEMA". Solo menciona jugadores de ${homeTeam} y ${awayTeam}.
 
 ⚠️ GOLEADORES — REGLAS ABSOLUTAS:
    → NUNCA uses "Delantero ${homeTeam}", "Goleador Rep. Checa" ni cualquier texto genérico.
@@ -483,13 +499,27 @@ REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=$
    → En "resumenEjecutivo": si citas estadísticas de jugadores, sé conservador y realista.
    → PROHIBIDO inventar estadísticas de temporada: si no las conoces con certeza, omítelas.
 
-⚠️ resumenEjecutivo DEBE tener MÍNIMO 4 FRASES EXTENSAS y 100% únicas para este partido. INCLUYE: análisis táctico real de ambos equipos, el jugador diferencial de cada lado con contexto, xG estimado, y qué está en juego. PROHIBIDO frases genéricas. EXTENSO y ESPECÍFICO.
+⚠️ resumenEjecutivo — REGLAS DE ORO:
+   → MÍNIMO 4 frases EXTENSAS y 100% únicas para ESTE partido específico.
+   → INCLUYE: xG estimado de cada equipo con su número (ej: "xG 2.1 para Portugal"), el jugador diferencial de cada bando CON SU NOMBRE, qué está en juego en este partido concreto, el contexto competitivo exacto (grupo, ronda, clasificación), y el estilo táctico diferenciador de cada equipo.
+   → PROHIBIDO escribir: "factor local", "ventaja de jugar en casa", "posesión entre 58-62%", "partido decisivo de cara a la clasificación" como frases genéricas. Cada frase debe aportar dato concreto.
+   → ${isWC ? 'Recuerda: partido en terreno NEUTRAL, ningún equipo tiene ventaja de "campo propio".' : ''}
+   → Los porcentajes mencionados en el texto DEBEN coincidir con los valores numéricos del JSON.
 
-⚠️ equipoLocal y equipoVisitante: MÍNIMO 4 fortalezas, 3 debilidades, forma detallada últimos 5 partidos. EXTENSO.
+⚠️ equipoLocal y equipoVisitante: MÍNIMO 4 fortalezas, 3 debilidades ESPECÍFICAS (no genéricas). Forma real últimos 5 partidos con resultados específicos si los conoces.
 
-⚠️ tactico.enfoque: MÍNIMO 4 frases detalladas. sistemaLocal y sistemaVisitante deben explicar el estilo real del equipo, no solo la formación.
+⚠️ tactico.enfoque — DIFERENTE a conclusion:
+   → tactico.enfoque: explica el duelo táctico concreto entre los dos estilos (cómo se enfrentan sus sistemas, qué zonas serán clave, qué ajustes tácticos probables).
+   → conclusion: pronóstico final con argumentos cuantitativos (xG, % probabilidades del JSON, factores de valor).
+   → PROHIBIDO repetir las mismas frases en ambos campos. Son COMPLETAMENTE DISTINTOS.
+   → MÍNIMO 4 frases en cada uno.
 
-⚠️ conclusion: MÍNIMO 4 frases. Pronóstico definitivo con argumentos cuantitativos.
+⚠️ apuestasRecomendadas — VARÍA SEGÚN EL PARTIDO:
+   → Las apuestas deben derivarse DIRECTAMENTE de tus probabilidades calculadas para este partido.
+   → Si xG local es alto (>2.0): incluye goles locales over, primer goleador local.
+   → Si ambos defensivos: incluye under goals, btts no, resultado 0-0.
+   → Si hay historial de tarjetas entre estos equipos: incluye mercados de tarjetas específicos.
+   → NUNCA generes las mismas apuestas para todos los partidos.
 
 INSTRUCCIÓN APUESTAS CRÍTICA: Genera entre 10 y 15 apuestas en apuestasRecomendadas. OBLIGATORIO máxima variedad:
   - 2-3 de córners (total partido, 1ª mitad, por equipo)
@@ -505,17 +535,23 @@ INSTRUCCIÓN APUESTAS CRÍTICA: Genera entre 10 y 15 apuestas en apuestasRecomen
 
 DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
 
-⚡ COMIENZA con "alineaciones" — es el primer campo del JSON. Titulares = 11 nombres reales.
+⚡ COMIENZA con "alineaciones" — es el primer campo del JSON.
+⚠️ ALINEACIONES — CRÍTICO — NUNCA uses "NombreReal1", "Portero1", etc. Son placeholders PROHIBIDOS.
+   → SIEMPRE escribe los 11 nombres reales de cada equipo, aunque tengas que estimar.
+   → Para CUALQUIER selección nacional, tienes conocimiento de sus convocados activos 2025-26.
+   → Si se proporcionó PLANTILLA abajo, ÚSALA. Si no, usa tu conocimiento real.
+   → Ejemplos de ${homeTeam}: nombre del portero real, nombres de defensas reales, etc.
+   → Ejemplos de ${awayTeam}: ídem. NUNCA placeholder.
 
 {
   "alineaciones": {
     "local": {
-      "formacion": "formación-real-del-entrenador",
-      "titulares": ["NombreReal1", "NombreReal2", "NombreReal3", "NombreReal4", "NombreReal5", "NombreReal6", "NombreReal7", "NombreReal8", "NombreReal9", "NombreReal10", "NombreReal11"]
+      "formacion": "formación-real (ej: 4-3-3)",
+      "titulares": ["Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido"]
     },
     "visitante": {
-      "formacion": "formación-real-del-entrenador",
-      "titulares": ["NombreReal1", "NombreReal2", "NombreReal3", "NombreReal4", "NombreReal5", "NombreReal6", "NombreReal7", "NombreReal8", "NombreReal9", "NombreReal10", "NombreReal11"]
+      "formacion": "formación-real (ej: 4-4-2)",
+      "titulares": ["Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido", "Nombre Apellido"]
     }
   },
   "resumenEjecutivo": "OBLIGATORIO: 3-4 frases 100% ÚNICAS para este partido. INCLUYE: forma reciente exacta de cada equipo, el jugador diferencial de cada lado con sus estadísticas, y el pronóstico cuantitativo (xG estimado, % victoria). PROHIBIDO frases genéricas como 'duelo intenso', 'estilos contrastados' o 'factor local decisivo'. Cada frase debe ser específica de ${homeTeam} vs ${awayTeam} hoy.",

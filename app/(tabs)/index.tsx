@@ -1559,7 +1559,12 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         </View>
         <View style={styles.cardFooter}>
-          {match.venue ? <Text style={styles.venueText} numberOfLines={1}>📍 {match.venue}</Text> : <View />}
+          {match.venue ? <Text style={styles.venueText} numberOfLines={1}>📍 {
+            // Show city (after last comma) rather than full stadium name
+            match.venue.includes(',')
+              ? match.venue.split(',').slice(-1)[0].trim()
+              : match.venue.split(' ').slice(0, 3).join(' ')
+          }</Text> : <View />}
           <Text style={styles.analysisHint}>
             {isLive ? '🔴 Análisis IA Live' : isFinished ? '📊 Ver resultados análisis' : '🤖 Análisis IA'} →
           </Text>
@@ -1635,35 +1640,33 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         .filter(p => p.name.length > 2 && !GENERIC_RE.test(p.name));
     }
 
-    // ── PRIMARY: Hardcoded WC 2026 squads (trusted, correct) ──
-    // Check wcSquads FIRST — reliable data that won't hallucinate wrong teams.
-    let homePlayers = buildFromSquad(getWcSquad(homeTeam));
-    let awayPlayers = buildFromSquad(getWcSquad(awayTeam));
+    // ── Data sources: WC squads (trusted), SDB squad, AI analysis ──
+    const wcHome = buildFromSquad(getWcSquad(homeTeam));
+    const wcAway = buildFromSquad(getWcSquad(awayTeam));
+    const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
+    const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
+    const sdbHome = buildFromSquad(sdbCtx?.homeSquad ?? []);
+    const sdbAway = buildFromSquad(sdbCtx?.awaySquad ?? []);
 
-    // ── SECONDARY: TheSportsDB squad (only if wcSquads didn't cover this team) ──
-    if (homePlayers.length < 5) {
-      const sdbHome = buildFromSquad(sdbCtx?.homeSquad ?? []);
-      if (sdbHome.length > homePlayers.length) homePlayers = sdbHome;
-    }
-    if (awayPlayers.length < 5) {
-      const sdbAway = buildFromSquad(sdbCtx?.awaySquad ?? []);
-      if (sdbAway.length > awayPlayers.length) awayPlayers = sdbAway;
-    }
+    // ── HOME: wcSquads (trusted) → AI (11 real names) → SDB → placeholder ──
+    let homePlayers =
+      wcHome.length >= 5 ? wcHome :
+      aiHome.length >= 7 ? aiHome :  // AI gave us nearly-complete lineup → trust it
+      sdbHome.length >= 5 ? sdbHome :
+      aiHome.length >= 3 ? aiHome :  // AI gave partial but better than nothing
+      wcHome.length > 0  ? wcHome  :
+      [];
 
-    // ── TERTIARY: AI names — only for non-WC teams where wcSquads is empty ──
-    // AI is constrained to the TheSportsDB squad list provided in the prompt,
-    // so it cannot invent players for clubs that aren't in wcSquads.
-    if (homePlayers.length < 5) {
-      const aiHome = extractFromAI(anal?.alineaciones?.local?.titulares ?? []);
-      if (aiHome.length > homePlayers.length) homePlayers = aiHome;
-    }
-    if (awayPlayers.length < 5) {
-      const aiAway = extractFromAI(anal?.alineaciones?.visitante?.titulares ?? []);
-      if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
-    }
+    // ── AWAY: same priority ──
+    let awayPlayers =
+      wcAway.length >= 5 ? wcAway :
+      aiAway.length >= 7 ? aiAway :
+      sdbAway.length >= 5 ? sdbAway :
+      aiAway.length >= 3 ? aiAway :
+      wcAway.length > 0  ? wcAway  :
+      [];
 
     // ── FINAL FALLBACK: numbered placeholders — ensures BOTH halves always render ──
-    // This prevents the "only one team shows" bug when one team isn't in any data source.
     if (homePlayers.length < 3) {
       homePlayers = Array.from({length: 11}, (_, i) => ({ name: `#${i+1}`, number: i+1, position: '' }));
     }
@@ -1701,42 +1704,62 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     );
 
     // ─── Bet365-style table component ───
-    const Bet365Table = ({ headers, rows, accentColor = '#22c55e' }: {
+    // ─── Bet365Table — professional sportsbook-style table ───────────────────
+    // First column is always flex:1 (label), data columns have fixed widths
+    // based on how many data columns there are (2→58px, 3→52px, ≥4→46px)
+    const Bet365Table = ({ headers, rows }: {
       headers: string[];
       rows: (string | number)[][];
-      accentColor?: string;
-    }) => (
-      <View style={styles.bet365Table}>
-        <View style={styles.bet365Header}>
-          {headers.map((h, i) => (
-            <Text
-              key={i}
-              style={[
-                styles.bet365HeaderCell,
-                { width: 50 + (i === headers.length - 1 ? 2 : 0), color: i === headers.length - 1 ? colors.accent.gold : '#6A7A8E' },
-              ]}
-            >
-              {h}
-            </Text>
-          ))}
-        </View>
-        {rows.map((row, i) => (
-          <View key={i} style={[styles.bet365Row, i % 2 === 1 && styles.bet365RowAlt]}>
-            {row.map((cell, j) => (
+    }) => {
+      const numDataCols = headers.length - 1;
+      const dataW = numDataCols <= 2 ? 58 : numDataCols === 3 ? 52 : 46;
+      return (
+        <View style={styles.bet365Table}>
+          {/* Header */}
+          <View style={styles.bet365Header}>
+            {headers.map((h, i) => (
               <Text
-                key={j}
+                key={i}
                 style={[
-                  j === 0 ? styles.bet365CellLabel : j === row.length - 1 ? styles.bet365CellOdds : styles.bet365CellValue,
-                  { width: 50 + (j === row.length - 1 ? 2 : 0) },
+                  styles.bet365HeaderCell,
+                  i === 0
+                    ? { flex: 1, textAlign: 'left' }
+                    : { width: dataW, textAlign: 'center',
+                        color: i === headers.length - 1 ? colors.accent.gold : '#6A7A8E' },
                 ]}
+                numberOfLines={1}
               >
-                {cell}
+                {h}
               </Text>
             ))}
           </View>
-        ))}
-      </View>
-    );
+          {/* Rows */}
+          {rows.map((row, ri) => (
+            <View key={ri} style={[styles.bet365Row, ri % 2 === 1 && styles.bet365RowAlt]}>
+              {row.map((cell, ci) => {
+                const isLabel = ci === 0;
+                const isOdds  = ci === row.length - 1 && row.length > 2;
+                return (
+                  <Text
+                    key={ci}
+                    style={[
+                      isLabel ? styles.bet365CellLabel
+                      : isOdds ? styles.bet365CellOdds
+                      : styles.bet365CellValue,
+                      isLabel ? { flex: 1 } : { width: dataW },
+                    ]}
+                    numberOfLines={isLabel ? 2 : 1}
+                    adjustsFontSizeToFit={!isLabel}
+                  >
+                    {cell}
+                  </Text>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      );
+    };
 
     try { return (
       <View style={styles.modalScroll}>
@@ -3255,36 +3278,36 @@ const styles = StyleSheet.create({
   liveMarketOpen: { backgroundColor: colors.bg.card, borderColor: colors.border.subtle },
   liveMarketText: { fontSize: 10, fontWeight: '600', color: colors.text.primary },
   // ─── BET365-style table ───
-  bet365Table: { marginBottom: 12 },
+  bet365Table: { marginBottom: 12, borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#1C2535' },
   bet365Header: {
-    flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 8,
-    backgroundColor: '#161D28', borderTopLeftRadius: 8, borderTopRightRadius: 8,
-    borderBottomWidth: 1.5, borderBottomColor: '#1C2535',
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 9,
+    backgroundColor: '#161D28',
+    borderBottomWidth: 1.5, borderBottomColor: '#253040',
   },
   bet365HeaderCell: {
-    fontSize: 9, fontWeight: '700', color: '#6A7A8E', textAlign: 'center',
-    textTransform: 'uppercase', letterSpacing: 0.6,
+    fontSize: 9, fontWeight: '800', color: '#6A7A8E',
+    textTransform: 'uppercase', letterSpacing: 0.7,
   },
   bet365Row: {
-    flexDirection: 'row', paddingHorizontal: 10, paddingVertical: 6,
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 9,
     borderBottomWidth: 1, borderBottomColor: '#1C2535',
-    backgroundColor: 'transparent',
+    alignItems: 'center',
   },
   bet365RowAlt: { backgroundColor: '#ffffff04' },
   bet365CellLabel: {
-    flex: 0, width: 50, fontSize: 11, fontWeight: '700', color: colors.text.primary,
-    textAlign: 'center',
+    fontSize: 11, fontWeight: '600', color: colors.text.primary,
+    textAlign: 'left',
   },
   bet365CellValue: {
-    flex: 0, width: 50, fontSize: 11, fontWeight: '600', color: colors.text.primary,
+    fontSize: 12, fontWeight: '700', color: '#A8BCCE',
     textAlign: 'center',
   },
   bet365CellValueBold: {
-    flex: 0, width: 50, fontSize: 12, fontWeight: '800', color: colors.text.primary,
+    fontSize: 13, fontWeight: '800', color: colors.text.primary,
     textAlign: 'center',
   },
   bet365CellOdds: {
-    flex: 0, width: 52, fontSize: 12, fontWeight: '700', color: colors.accent.gold,
+    fontSize: 12, fontWeight: '800', color: colors.accent.gold,
     textAlign: 'center',
   },
 });
