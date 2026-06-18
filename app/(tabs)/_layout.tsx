@@ -579,20 +579,50 @@ function ChangeRow({ change, index, total }: { change: PredictionChange; index: 
   );
 }
 
-// ─── Admin tab button + panel — self-contained, reads own auth ───────────────
-// IMPORTANT: This component is intentionally self-contained so the tabBarButton
-// reference in TabsLayout never changes. Changing tabBarButton on re-render
-// (e.g., after login/bypass) causes expo-router to reset navigation → blank screen.
-function AdminTabWrapper() {
+// ─── Admin floating button + panel ───────────────────────────────────────────
+// Rendered as a floating overlay OUTSIDE expo-router's Tabs component so it
+// never interferes with tab navigation or initial route resolution.
+function AdminFloatingButton() {
   const { bypassActive } = useAuth();
-  const [adminPanelVisible, setAdminPanelVisible] = useState(false);
+  const [panelVisible, setPanelVisible] = useState(false);
+  const insets    = useSafeAreaInsets();
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
+
+  useEffect(() => {
+    if (!bypassActive) return;
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
+      ])
+    ).start();
+    return () => pulseAnim.stopAnimation();
+  }, [bypassActive]);
 
   if (!bypassActive) return null;
 
+  const borderColor = pulseAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['#f59e0b', '#ef4444', '#f59e0b'],
+  });
+
+  // Position: right of tab bar, above safe area bottom
+  const tabBarH = 58 + bottomPad;
+
   return (
     <>
-      <AdminTabButton onPress={() => setAdminPanelVisible(true)} />
-      <AdminPanel visible={adminPanelVisible} onClose={() => setAdminPanelVisible(false)} />
+      <TouchableOpacity
+        onPress={() => setPanelVisible(true)}
+        activeOpacity={0.75}
+        style={[adm.floatBtn, { bottom: tabBarH - 2 }]}
+      >
+        <Animated.View style={[adm.floatInner, { borderColor }]}>
+          <Text style={adm.floatEmoji}>🔐</Text>
+          <Text style={adm.floatLabel}>Admin</Text>
+        </Animated.View>
+      </TouchableOpacity>
+      <AdminPanel visible={panelVisible} onClose={() => setPanelVisible(false)} />
     </>
   );
 }
@@ -707,69 +737,30 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
-      {/* Admin tab — tabBarButton is a STABLE function (never changes).
-          Auth check + panel state live inside AdminTabWrapper itself. */}
-      <Tabs.Screen
-        name="admin"
-        options={{
-          href: null,
-          tabBarButton: () => <AdminTabWrapper />,
-        }}
-      />
     </Tabs>
     <AccuracyModal visible={accuracyVisible} onClose={() => setAccuracyVisible(false)} />
+    {/* Admin floating button — rendered OUTSIDE Tabs so it never affects routing */}
+    <AdminFloatingButton />
     </>
   );
 }
 
-// ─── Admin tab button ─────────────────────────────────────────────────────────
-function AdminTabButton({ onPress }: { onPress: () => void }) {
-  const pulseAnim = useRef(new Animated.Value(0)).current;
-  const insets    = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1400, useNativeDriver: false }),
-        Animated.timing(pulseAnim, { toValue: 0, duration: 1400, useNativeDriver: false }),
-      ])
-    ).start();
-    return () => pulseAnim.stopAnimation();
-  }, []);
-
-  const borderColor = pulseAnim.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: ['#f59e0b', '#ef4444', '#f59e0b'],
-  });
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.75}
-      style={[adm.tabBtn, { paddingBottom: bottomPad }]}
-    >
-      <Animated.View style={[adm.tabInner, { borderColor }]}>
-        <Text style={adm.tabEmoji}>🔐</Text>
-        <Text style={adm.tabLabel}>Admin</Text>
-      </Animated.View>
-    </TouchableOpacity>
-  );
-}
-
 const adm = StyleSheet.create({
-  tabBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'flex-end',
-    paddingTop: 6,
+  floatBtn: {
+    position: 'absolute',
+    right: 4,
+    zIndex: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabInner: {
+  floatInner: {
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderRadius: 10,
-    paddingHorizontal: 6, paddingVertical: 3,
+    paddingHorizontal: 7, paddingVertical: 4,
     backgroundColor: '#1a0a00',
   },
-  tabEmoji: { fontSize: 18 },
-  tabLabel: { fontSize: 9, color: '#f59e0b', fontWeight: '800', marginTop: 2, letterSpacing: 0.2 },
+  floatEmoji: { fontSize: 17 },
+  floatLabel: { fontSize: 8, color: '#f59e0b', fontWeight: '800', marginTop: 1, letterSpacing: 0.2 },
 });
 
 // ─── Estilos header ───────────────────────────────────────────────────────────
