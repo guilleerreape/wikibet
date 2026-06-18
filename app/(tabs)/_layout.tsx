@@ -579,12 +579,28 @@ function ChangeRow({ change, index, total }: { change: PredictionChange; index: 
   );
 }
 
+// ─── Admin tab button + panel — self-contained, reads own auth ───────────────
+// IMPORTANT: This component is intentionally self-contained so the tabBarButton
+// reference in TabsLayout never changes. Changing tabBarButton on re-render
+// (e.g., after login/bypass) causes expo-router to reset navigation → blank screen.
+function AdminTabWrapper() {
+  const { bypassActive } = useAuth();
+  const [adminPanelVisible, setAdminPanelVisible] = useState(false);
+
+  if (!bypassActive) return null;
+
+  return (
+    <>
+      <AdminTabButton onPress={() => setAdminPanelVisible(true)} />
+      <AdminPanel visible={adminPanelVisible} onClose={() => setAdminPanelVisible(false)} />
+    </>
+  );
+}
+
 // ─── Layout ───────────────────────────────────────────────────────────────────
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const [accuracyVisible, setAccuracyVisible] = useState(false);
-  const [adminPanelVisible, setAdminPanelVisible] = useState(false);
-  const { bypassActive } = useAuth();
   // En móvil web, añadir padding extra para que no tape la barra del navegador
   const bottomPad = Math.max(insets.bottom, Platform.OS === 'web' ? 10 : 8);
   const tabBarH   = 58 + bottomPad;
@@ -691,23 +707,17 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="jugadores" options={{ href: null }} />
       <Tabs.Screen name="equipos"   options={{ href: null }} />
-      {/* Admin tab — only rendered in tab bar when bypassActive (code 130823) */}
+      {/* Admin tab — tabBarButton is a STABLE function (never changes).
+          Auth check + panel state live inside AdminTabWrapper itself. */}
       <Tabs.Screen
         name="admin"
         options={{
           href: null,
-          tabBarButton: bypassActive
-            ? () => (
-                <AdminTabButton onPress={() => setAdminPanelVisible(true)} />
-              )
-            : () => null,
+          tabBarButton: () => <AdminTabWrapper />,
         }}
       />
     </Tabs>
     <AccuracyModal visible={accuracyVisible} onClose={() => setAccuracyVisible(false)} />
-    {bypassActive && (
-      <AdminPanel visible={adminPanelVisible} onClose={() => setAdminPanelVisible(false)} />
-    )}
     </>
   );
 }
