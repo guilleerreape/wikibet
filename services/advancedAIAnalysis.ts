@@ -35,6 +35,8 @@ export interface TiroJugador {
   equipo: 'local' | 'visitante';
   tiros: number;
   a_puerta: number;
+  probabilidad?: number; // % IA de que dispare
+  cuota?: number;        // Cuota mercado
 }
 
 export interface GoleadorPrediccion {
@@ -468,6 +470,13 @@ REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=$
    → Si no conoces al delantero del equipo, usa el jugador más famoso o reconocible del equipo.
    → PROHIBIDO dejar "nombre real del jugador" como valor — rellena SIEMPRE con un nombre real.
 
+⚠️ TIROS POR JUGADOR — REGLAS PARA tiros.jugadores:
+   → Incluye los 3-4 jugadores más propensos a disparar de cada equipo (delanteros y extremos principalmente).
+   → PROHIBIDO nombres genéricos como "Delantero", "Extremo", etc. — SOLO NOMBRES REALES.
+   → probabilidad: % de que el jugador dispare (30-85%). Basado en su rol y el xG del equipo.
+   → cuota: Cuota de mercado (1.20 a 4.00) — calculada como 100/probabilidad * 0.93
+   → Ejemplo: {"nombre": "Kylian Mbappé", "equipo": "local", "tiros": 5, "a_puerta": 3, "probabilidad": 78, "cuota": 1.28}
+
 ⚠️ ESTADÍSTICAS DE TORNEO — REGLAS ABSOLUTAS:
    → NUNCA escribas cifras de goles de torneo exageradas o falsas. En una Copa del Mundo, un jugador anota típicamente 1-7 goles en TODA la competición.
    → NUNCA digas que un jugador tiene "67 goles en el torneo" o cifras absurdas.
@@ -559,10 +568,10 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
       "total": {"local": 0, "visitante": 0, "total": 0},
       "a_puerta": {"local": 0, "visitante": 0, "total": 0},
       "jugadores": [
-        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0},
-        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0},
-        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0},
-        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0}
+        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0, "probabilidad": 65, "cuota": 1.55},
+        {"nombre": "nombre real del jugador", "equipo": "local", "tiros": 0, "a_puerta": 0, "probabilidad": 52, "cuota": 1.93},
+        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0, "probabilidad": 58, "cuota": 1.72},
+        {"nombre": "nombre real del jugador", "equipo": "visitante", "tiros": 0, "a_puerta": 0, "probabilidad": 41, "cuota": 2.44}
       ]
     },
     "mercados": {
@@ -815,18 +824,34 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     const awayTirosPuerta = Math.round(awayXG * 2.6);
 
     const tirosJugadores: TiroJugador[] = [
-      ...homeTop3.slice(0, 3).map((p, i) => ({
-        nombre: p.name,
-        equipo: 'local' as const,
-        tiros: Math.max(1, Math.round(homeTirosTotal * (0.35 - i * 0.08))),
-        a_puerta: Math.max(1, Math.round(homeTirosPuerta * (0.4 - i * 0.1))),
-      })),
-      ...awayTop3.slice(0, 3).map((p, i) => ({
-        nombre: p.name,
-        equipo: 'visitante' as const,
-        tiros: Math.max(1, Math.round(awayTirosTotal * (0.35 - i * 0.08))),
-        a_puerta: Math.max(1, Math.round(awayTirosPuerta * (0.4 - i * 0.1))),
-      })),
+      ...homeTop3.slice(0, 3).map((p, i) => {
+        const tiros = Math.max(1, Math.round(homeTirosTotal * (0.35 - i * 0.08)));
+        const a_puerta = Math.max(1, Math.round(homeTirosPuerta * (0.4 - i * 0.1)));
+        // % probabilidad de que dispare (basado en tiros vs total equipo)
+        const prob = Math.round((tiros / homeTirosTotal) * 100);
+        return {
+          nombre: p.name,
+          equipo: 'local' as const,
+          tiros,
+          a_puerta,
+          probabilidad: Math.min(99, Math.max(10, prob)), // 10-99%
+          cuota: safeOdds(Math.min(99, Math.max(10, prob))),
+        };
+      }),
+      ...awayTop3.slice(0, 3).map((p, i) => {
+        const tiros = Math.max(1, Math.round(awayTirosTotal * (0.35 - i * 0.08)));
+        const a_puerta = Math.max(1, Math.round(awayTirosPuerta * (0.4 - i * 0.1)));
+        // % probabilidad de que dispare
+        const prob = Math.round((tiros / awayTirosTotal) * 100);
+        return {
+          nombre: p.name,
+          equipo: 'visitante' as const,
+          tiros,
+          a_puerta,
+          probabilidad: Math.min(99, Math.max(10, prob)), // 10-99%
+          cuota: safeOdds(Math.min(99, Math.max(10, prob))),
+        };
+      }),
     ].filter(p => p.nombre);
 
     // Corners

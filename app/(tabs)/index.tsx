@@ -2121,11 +2121,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   <Text style={styles.tableGroupChipText}>Tiros por jugador</Text>
                 </View>
                 <Bet365Table
-                  headers={['Jugador', 'Tiros', 'A Puerta']}
+                  headers={['Jugador', 'Tiros', 'Puerta', '% IA', 'Cuota']}
                   rows={pred.tiros.jugadores.map(j => [
                     `${j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'} ${j.nombre}`,
                     String(j.tiros ?? '-'),
-                    String(j.a_puerta ?? '-')
+                    String(j.a_puerta ?? '-'),
+                    j.probabilidad ? `${j.probabilidad}%` : '-',
+                    j.cuota ? j.cuota.toFixed(2) : '-'
                   ])}
                 />
               </>
