@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Component } from 'react';
 import {
   View,
   StyleSheet,
@@ -164,8 +164,43 @@ function PartidosHeader({ count, showPast, comp }: { count: number; showPast: bo
   );
 }
 
+// ─── Error Boundary for analysis render ──────────────────────────────────────
+// Catches render-phase errors in child components (AiBetPanel, LiveBanner, etc.)
+// that cannot be caught by try/catch inside a render function.
+class AnalysisErrorBoundary extends Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean; errorMsg: string }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorMsg: '' };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorMsg: error?.message ?? String(error) };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error('[WikiBet] AnalysisErrorBoundary caught:', error?.message, info?.componentStack?.slice(0, 200));
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? (
+        <View style={{ padding: 30, alignItems: 'center' }}>
+          <Text style={{ color: '#ef4444', fontSize: 14, textAlign: 'center', marginBottom: 6 }}>
+            ⚠️ Error mostrando análisis
+          </Text>
+          <Text style={{ color: '#9ca3af', fontSize: 10, textAlign: 'center' }}>
+            {this.state.errorMsg}
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
 function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
+  if (!analysis?.predicciones) return null;
   const isFinished = match.status === 'finished';
   const isLive     = match.status === 'live';
   const hg = match.homeScore ?? 0;
@@ -354,9 +389,9 @@ function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: Ad
   const total = hg + ag;
   const pred = analysis.predicciones;
 
-  const homeWinProb = pred.probabilidades.victoriaLocal;
-  const drawProb = pred.probabilidades.empate;
-  const awayWinProb = pred.probabilidades.victoriaVisitante;
+  const homeWinProb = pred?.probabilidades?.victoriaLocal ?? 50;
+  const drawProb    = pred?.probabilidades?.empate ?? 25;
+  const awayWinProb = pred?.probabilidades?.victoriaVisitante ?? 25;
   const predictedOutcome = homeWinProb >= drawProb && homeWinProb >= awayWinProb ? match.homeTeam
     : drawProb >= homeWinProb && drawProb >= awayWinProb ? 'Empate' : match.awayTeam;
   const currentOutcome = hg > ag ? match.homeTeam : hg === ag ? 'Empate' : match.awayTeam;
@@ -439,20 +474,70 @@ function AnimSection({ children, delay = 0 }: { children: React.ReactNode; delay
   );
 }
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-function Section({ icon, title, children, accent, delay = 0 }: { icon: string; title: string; children: React.ReactNode; accent?: string; delay?: number }) {
+// ─── Animated Section Card ────────────────────────────────────────────────────
+// Each section gets a reactive animated colored border — "reactive overlay" effect.
+// border pulses between dim and bright, creating a living perimeter around each section.
+function Section({ icon, title, children, accent = '#22c55e', delay = 0 }: {
+  icon: string; title: string; children: React.ReactNode; accent?: string; delay?: number;
+}) {
+  const glow = useRef(new Animated.Value(0)).current;
+  const entrance = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(12)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(entrance, { toValue: 1, duration: 450, delay, useNativeDriver: true }),
+      Animated.timing(slide, { toValue: 0, duration: 350, delay, useNativeDriver: true }),
+    ]).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 2800, useNativeDriver: false }),
+        Animated.timing(glow, { toValue: 0, duration: 2800, useNativeDriver: false }),
+      ])
+    ).start();
+  }, []);
+
+  const borderColor = glow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [`${accent}28`, `${accent}99`],
+  });
+
   return (
-    <AnimSection delay={delay}>
-      <View style={[styles.section, accent ? { borderLeftColor: accent, borderLeftWidth: 3, paddingLeft: 10 } : null]}>
-        <View style={styles.sectionHeader}>
-          <View style={[styles.sectionIconWrap, { backgroundColor: (accent || colors.accent.green) + '20' }]}>
-            <Text style={styles.sectionIcon}>{icon}</Text>
+    <Animated.View style={{ opacity: entrance, transform: [{ translateY: slide }], marginBottom: 14 }}>
+      <Animated.View style={{
+        borderRadius: 14,
+        borderWidth: 1.5,
+        borderColor,
+        backgroundColor: colors.bg.card,
+        overflow: 'hidden',
+      }}>
+        {/* Colored header strip */}
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+          paddingHorizontal: 14, paddingTop: 11, paddingBottom: 9,
+          borderBottomWidth: 1, borderBottomColor: `${accent}1a`,
+          backgroundColor: `${accent}0e`,
+        }}>
+          <View style={{
+            width: 28, height: 28, borderRadius: 8,
+            backgroundColor: `${accent}22`,
+            justifyContent: 'center', alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: 14 }}>{icon}</Text>
           </View>
-          <Text style={[styles.sectionTitle, { color: accent || colors.text.primary }]}>{title}</Text>
+          <Text style={{
+            fontSize: 11, fontWeight: '900', color: accent,
+            letterSpacing: 0.9, textTransform: 'uppercase', flex: 1,
+          }}>
+            {title}
+          </Text>
         </View>
-        {children}
-      </View>
-    </AnimSection>
+        {/* Content */}
+        <View style={{ paddingHorizontal: 14, paddingBottom: 12, paddingTop: 10 }}>
+          {children}
+        </View>
+      </Animated.View>
+    </Animated.View>
   );
 }
 
@@ -736,14 +821,15 @@ export default function MatchesScreen() {
         });
       }
 
-      // Refresh events
+      // Refresh events (apply same penalty/owngoal detail fix as openAnalysis)
       const events = await sportsDbService.getMatchEvents(
         selectedMatch.id, selectedMatch.homeTeam, selectedMatch.awayTeam
       ).catch(() => []);
       if (events.length > 0) {
         setMatchEvents(events.map(e => ({
           minute: e.minute, type: e.type, team: e.team,
-          player: e.player, detail: e.detail,
+          player: e.player,
+          detail: e.type === 'penalty' ? (e.detail ?? 'Penalti') : e.type === 'owngoal' ? (e.detail ?? 'En propia') : e.detail,
         })));
       }
     };
@@ -802,9 +888,9 @@ export default function MatchesScreen() {
     const ag = match.awayScore ?? 0;
     const total = hg + ag;
     const pred = anal.predicciones;
-    const pHome = pred.probabilidades.victoriaLocal;
-    const pDraw = pred.probabilidades.empate;
-    const pAway = pred.probabilidades.victoriaVisitante;
+    const pHome = pred?.probabilidades?.victoriaLocal ?? 50;
+    const pDraw  = pred?.probabilidades?.empate ?? 25;
+    const pAway  = pred?.probabilidades?.victoriaVisitante ?? 25;
     const predictedOutcome = pHome >= pDraw && pHome >= pAway ? match.homeTeam
       : pDraw >= pHome && pDraw >= pAway ? 'empate' : match.awayTeam;
     const actualOutcome = hg > ag ? match.homeTeam : hg === ag ? 'empate' : match.awayTeam;
@@ -945,6 +1031,27 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setMatchWeather(null);
     setAnalysisLoading(true);
 
+    // ── IMMEDIATE: Show local analysis RIGHT AWAY (synchronous, < 1ms) ──────────
+    // Guarantees the user ALWAYS sees full analysis + predictions immediately.
+    // AI result (analyzeMatchComprehensive) will REPLACE this when it arrives.
+    try {
+      const quickLocal = advancedAIAnalysis.generateLocalAnalysis(
+        match.homeTeam, match.awayTeam, match.league,
+        localDataService.getPlayersByTeam(match.homeTeam),
+        localDataService.getPlayersByTeam(match.awayTeam),
+        localDataService.getTeamByName(match.homeTeam),
+        localDataService.getTeamByName(match.awayTeam),
+      );
+      setAnalysis(quickLocal);
+      const quickEstimated = generateEstimatedEvents(match, quickLocal);
+      setEstimatedEvents(quickEstimated);
+      setAnalysisLoading(false);   // Stop spinner — show analysis immediately
+    } catch (quickErr) {
+      console.warn('[WikiBet] Quick local analysis failed:', quickErr);
+      // Don't leave spinner stuck forever — clear it even if local failed
+      setAnalysisLoading(false);
+    }
+
     // Fetch weather for this match's venue
     if (match.venue) {
       getVenueWeather(match.venue).then(w => { if (w) setMatchWeather(w); }).catch(() => {});
@@ -956,12 +1063,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     {
       const wcHome = getWcSquad(match.homeTeam);
       const wcAway = getWcSquad(match.awayTeam);
+      // Placeholder: if one team has squad data and the other doesn't, use numbered players
+      // so BOTH halves of the pitch always render (avoids "only one team shows" issue).
+      function genPlaceholders(n: number) {
+        return Array.from({length: n}, (_, i) => ({ name: `#${i+1}`, number: i+1, position: '' }));
+      }
       if (wcHome.length > 0 || wcAway.length > 0) {
         setMatchLineup({
           homeFormation: '4-3-3',
           awayFormation: '4-3-3',
-          homePlayers: wcHome,
-          awayPlayers: wcAway,
+          homePlayers: wcHome.length > 0 ? wcHome : genPlaceholders(11),
+          awayPlayers: wcAway.length > 0 ? wcAway : genPlaceholders(11),
         });
       } else {
         setMatchLineup(null);
@@ -1057,76 +1169,77 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       })));
     }
 
+    // ── AI Analysis: upgrades the local analysis already shown above ────────────
+    // analyzeMatchComprehensive calls Claude AI (up to 45s). On success, it
+    // replaces the quick local analysis with richer AI predictions.
+    // On any failure, the local analysis is already visible — nothing to do.
     try {
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
         match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined,
         match.venue,
       );
-      setAnalysis(result);
+      setAnalysis(result);  // Replace local analysis with AI result
 
       // ── BUILD LINEUP from AI + squad data, update pitch if still empty ──────
-      // If TheSportsDB returned a real lineup (>= 8 players), keep it and skip AI.
-      // Otherwise merge AI names, TheSportsDB squad, and wcSquads fallback.
       const sdbLineupCount = (sdbLineup?.homePlayers.length ?? 0) + (sdbLineup?.awayPlayers.length ?? 0);
       if (sdbLineupCount < 8) {
         setMatchLineup(prev => {
           const currentCount = (prev?.homePlayers.length ?? 0) + (prev?.awayPlayers.length ?? 0);
-          if (currentCount >= 10) return prev; // already have a good lineup, keep it
+          const hasPlaceholders =
+            (prev?.homePlayers ?? []).some(p => p.name.startsWith('#')) ||
+            (prev?.awayPlayers ?? []).some(p => p.name.startsWith('#'));
+          if (currentCount >= 10 && !hasPlaceholders) return prev;
           const aiLineup = buildPredictedLineup(match.homeTeam, match.awayTeam, result, sdbContext);
           const aiCount = aiLineup.homePlayers.length + aiLineup.awayPlayers.length;
-          if (aiCount > currentCount) return aiLineup;
+          if (aiCount > currentCount || hasPlaceholders) return aiLineup;
           return prev;
         });
       }
 
-      // Generate estimated events for all statuses (shows predicted events for upcoming, actual for finished)
-      {
-        const estimated = generateEstimatedEvents(match, result);
-        setEstimatedEvents(estimated);
-      }
+      // Update estimated events with AI data
+      const estimated = generateEstimatedEvents(match, result);
+      setEstimatedEvents(estimated);
 
-      // ── Track prediction in Supabase — wrapped in try/catch so Supabase errors don't break the UI ──
+      // ── Track prediction in Supabase ────────────────────────────────────────
       try {
-        const probs = result.predicciones.probabilidades;
-        const predicted = outcomeFromProbs(
-          probs.victoriaLocal, probs.empate, probs.victoriaVisitante
-        );
-        const preds = buildConfidentPredictions(result.predicciones);
-        savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
-        savePredTimestamp(match.id);
-        if (match.status === 'finished' &&
-            match.homeScore !== undefined &&
-            match.awayScore !== undefined) {
-          updateActualResult(match.id, match.homeScore, match.awayScore);
+        const probs = result.predicciones?.probabilidades;
+        if (probs) {
+          const predicted = outcomeFromProbs(
+            probs.victoriaLocal, probs.empate, probs.victoriaVisitante
+          );
+          const preds = buildConfidentPredictions(result.predicciones);
+          savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
+          savePredTimestamp(match.id);
+          if (match.status === 'finished' &&
+              match.homeScore !== undefined &&
+              match.awayScore !== undefined) {
+            updateActualResult(match.id, match.homeScore, match.awayScore);
+          }
         }
-      } catch { /* Supabase unavailable — analysis still shows */ }
+      } catch { /* Supabase unavailable */ }
 
       // Comentario IA para partidos ya jugados
       if (match.status === 'finished') {
         generatePostMatchComment(match, result);
       }
     } catch (e) {
-      // Never show the error screen — always fall back to local analysis
-      console.warn('[WikiBet] analyzeMatchComprehensive threw unexpectedly, using local fallback:', e);
-      try {
-        const fallback = advancedAIAnalysis.generateLocalAnalysis(
-          match.homeTeam, match.awayTeam, match.league,
-          localDataService.getPlayersByTeam(match.homeTeam),
-          localDataService.getPlayersByTeam(match.awayTeam),
-          localDataService.getTeamByName(match.homeTeam),
-          localDataService.getTeamByName(match.awayTeam),
-        );
-        setAnalysis(fallback);
-        const estimated = generateEstimatedEvents(match, fallback);
-        setEstimatedEvents(estimated);
-      } catch (e2) {
-        // Absolute last resort — never show error screen, just log and leave analysis=null
-        // (shows blank analysis area, better than "API key" error message)
-        console.warn('[WikiBet] Local fallback also failed:', e2);
-        // analysisError stays false — no error screen shown
-      }
+      // AI call failed — local analysis may already be showing.
+      console.warn('[WikiBet] AI analysis failed, ensuring local fallback:', e);
     } finally {
-      setAnalysisLoading(false);
+      // GUARANTEE: if analysis is still null (both local and AI failed), regenerate local now
+      setAnalysis(prev => {
+        if (prev !== null) return prev;
+        try {
+          return advancedAIAnalysis.generateLocalAnalysis(
+            match.homeTeam, match.awayTeam, match.league,
+            localDataService.getPlayersByTeam(match.homeTeam),
+            localDataService.getPlayersByTeam(match.awayTeam),
+            localDataService.getTeamByName(match.homeTeam),
+            localDataService.getTeamByName(match.awayTeam),
+          );
+        } catch { return null; }
+      });
+      setAnalysisLoading(false);  // Safety — ensure spinner never stays on
     }
   };
 
@@ -1549,13 +1662,22 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       if (aiAway.length > awayPlayers.length) awayPlayers = aiAway;
     }
 
+    // ── FINAL FALLBACK: numbered placeholders — ensures BOTH halves always render ──
+    // This prevents the "only one team shows" bug when one team isn't in any data source.
+    if (homePlayers.length < 3) {
+      homePlayers = Array.from({length: 11}, (_, i) => ({ name: `#${i+1}`, number: i+1, position: '' }));
+    }
+    if (awayPlayers.length < 3) {
+      awayPlayers = Array.from({length: 11}, (_, i) => ({ name: `#${i+1}`, number: i+1, position: '' }));
+    }
+
     return { homeFormation: homeForm, awayFormation: awayForm, homePlayers, awayPlayers };
   }
 
   // ─── Analysis modal content ──────────────────────────────────────────────────
   const AnalysisContent = () => {
     if (!analysis || !selectedMatch) return null;
-    const pred = analysis.predicciones;
+    const pred = analysis.predicciones ?? {} as typeof analysis.predicciones;
     // Apply live score overrides from polling
     const liveDataForModal = liveScoresMap[selectedMatch.id];
     const isLive = (liveDataForModal?.status ?? selectedMatch.status) === 'live';
@@ -1572,13 +1694,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     }) => (
       <View style={[styles.lineRow, highlight && styles.lineRowHighlight]}>
         <Text style={styles.lineLabelText}>{label}</Text>
-        <Text style={[styles.lineVal, local >= 60 && { color: '#22c55e' }]}>{local}%</Text>
-        <Text style={[styles.lineVal, visitante >= 60 && { color: '#22c55e' }]}>{visitante}%</Text>
-        <Text style={[styles.lineValTotal, total >= 60 && { color: '#22c55e' }]}>{total}%</Text>
+        <Text style={[styles.lineVal, { color: local >= 60 ? '#22c55e' : '#4A5A6E' }]}>{local}%</Text>
+        <Text style={[styles.lineVal, { color: visitante >= 60 ? '#22c55e' : '#4A5A6E' }]}>{visitante}%</Text>
+        <Text style={[styles.lineValTotal, { color: total >= 60 ? '#22c55e' : colors.text.primary }]}>{total}%</Text>
       </View>
     );
 
-    return (
+    try { return (
       <View style={styles.modalScroll}>
 
         {/* Lineup caption */}
@@ -1621,19 +1743,15 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         )}
 
         {/* RESUMEN */}
-        <Section icon="📋" title="RESUMEN EJECUTIVO" delay={0}>
+        <Section icon="📋" title="RESUMEN EJECUTIVO" accent="#f59e0b" delay={0}>
           <Text style={styles.bodyText}>{analysis.resumenEjecutivo}</Text>
           <Text style={[styles.bodyText, { marginTop: 6, color: colors.text.muted, fontStyle: 'italic' }]}>
             {analysis.importanciaDelPartido}
           </Text>
         </Section>
 
-        {/* PANEL APUESTA DE LA IA — siempre visible (upcoming + played) */}
-        <AiBetPanel match={selectedMatch} analysis={analysis} />
-
-
         {/* EQUIPOS */}
-        <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" delay={80}>
+        <Section icon="🎽" title="ANÁLISIS DE EQUIPOS" accent="#3b82f6" delay={80}>
           <View style={styles.row2}>
             {[
               { name: selectedMatch.homeTeam, data: analysis.equipoLocal, flag: getFlag(selectedMatch.homeTeam) },
@@ -1641,13 +1759,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             ].map(({ name, data, flag }) => (
               <View key={name} style={styles.teamBox}>
                 <Text style={styles.teamBoxName} numberOfLines={1}>{flag} {name}</Text>
-                <Text style={styles.teamBoxForm}>{data.formacion}</Text>
-                <Text style={styles.teamBoxStat}>xG: {data.xG_promedio} · xGA: {data.xGA_promedio}</Text>
-                <Text style={[styles.teamBoxStat, { color: colors.accent.blue, marginTop: 3 }]}>{data.forma}</Text>
+                <Text style={styles.teamBoxForm}>{data?.formacion ?? ''}</Text>
+                <Text style={styles.teamBoxStat}>xG: {data?.xG_promedio ?? '-'} · xGA: {data?.xGA_promedio ?? '-'}</Text>
+                <Text style={[styles.teamBoxStat, { color: colors.accent.blue, marginTop: 3 }]}>{data?.forma ?? ''}</Text>
                 <Text style={[styles.teamBoxStat, { marginTop: 4 }]}>
-                  {data.fortalezas.map(f => `✅ ${f}`).join('\n')}
+                  {(data.fortalezas ?? []).map(f => `✅ ${f}`).join('\n')}
                 </Text>
-                {data.lesionados?.length > 0 && (
+                {(data.lesionados?.length ?? 0) > 0 && (
                   <Text style={[styles.teamBoxStat, { color: colors.accent.red, marginTop: 3 }]}>
                     🩹 {data.lesionados.join(', ')}
                   </Text>
@@ -1657,34 +1775,107 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         </Section>
 
+        {/* TÁCTICA — entre equipos y probabilidades */}
+        <Section icon="♟️" title="ANÁLISIS TÁCTICO" accent="#8b5cf6" delay={120}>
+          <View style={styles.row2}>
+            <View style={styles.teamBox}>
+              <Text style={styles.teamBoxName}>{getFlag(selectedMatch.homeTeam)} {selectedMatch.homeTeam}</Text>
+              <Text style={[styles.teamBoxForm, { fontSize: 13 }]}>{analysis.tactico?.sistemaLocal ?? ''}</Text>
+            </View>
+            <View style={styles.teamBox}>
+              <Text style={styles.teamBoxName}>{getFlag(selectedMatch.awayTeam)} {selectedMatch.awayTeam}</Text>
+              <Text style={[styles.teamBoxForm, { fontSize: 13 }]}>{analysis.tactico?.sistemaVisitante ?? ''}</Text>
+            </View>
+          </View>
+          <Text style={[styles.bodyText, { marginTop: 8 }]}>{analysis.tactico?.enfoque ?? ''}</Text>
+          <Text style={[styles.bodyText, { marginTop: 6, fontWeight: '600', color: colors.accent.blue }]}>
+            {analysis.tactico?.ventajaTactica ?? ''}
+          </Text>
+          {(analysis.tactico?.clavesDelPartido ?? []).map((k, i) => (
+            <Text key={i} style={[styles.bodyText, { marginTop: 4, color: colors.text.muted }]}>🔑 {k}</Text>
+          ))}
+        </Section>
+
+        {/* CONCLUSIÓN — entre táctica y probabilidades */}
+        <Section icon="🎯" title="CONCLUSIÓN IA" accent="#22c55e" delay={140}>
+          <Text style={styles.bodyText}>{analysis.conclusion}</Text>
+          <View style={styles.confBox}>
+            <View style={[styles.confBar, { width: `${analysis.confianza}%` as any }]} />
+            <Text style={styles.confText}>Confianza IA: {analysis.confianza}%</Text>
+          </View>
+        </Section>
+
         {/* 1X2 */}
-        <Section icon="🎯" title="PROBABILIDADES 1X2" delay={160}>
+        <Section icon="🎯" title="PROBABILIDADES 1X2" accent="#22c55e" delay={160}>
           <View style={styles.row3}>
             {[
-              { label: `1 ${selectedMatch.homeTeam}`, prob: pred.probabilidades.victoriaLocal, cuota: pred.cuotasTeoricas.victoriaLocal, color: colors.accent.green, d: 200 },
-              { label: 'X Empate', prob: pred.probabilidades.empate, cuota: pred.cuotasTeoricas.empate, color: colors.accent.gold, d: 320 },
-              { label: `2 ${selectedMatch.awayTeam}`, prob: pred.probabilidades.victoriaVisitante, cuota: pred.cuotasTeoricas.victoriaVisitante, color: colors.accent.red, d: 440 },
+              { label: `1 ${selectedMatch.homeTeam}`, prob: pred.probabilidades?.victoriaLocal ?? 50, cuota: pred.cuotasTeoricas?.victoriaLocal ?? 2.0, color: colors.accent.green, d: 200 },
+              { label: 'X Empate', prob: pred.probabilidades?.empate ?? 25, cuota: pred.cuotasTeoricas?.empate ?? 3.5, color: colors.accent.gold, d: 320 },
+              { label: `2 ${selectedMatch.awayTeam}`, prob: pred.probabilidades?.victoriaVisitante ?? 25, cuota: pred.cuotasTeoricas?.victoriaVisitante ?? 3.5, color: colors.accent.red, d: 440 },
             ].map(item => (
               <View key={item.label} style={styles.probCell}>
                 <Text style={styles.probLabel} numberOfLines={1}>{item.label}</Text>
                 <Text style={[styles.probValue, { color: item.color }]}>{item.prob}%</Text>
                 <ProbBar val={item.prob} color={item.color} delay={item.d} />
-                <Text style={styles.probOdds}>{item.cuota.toFixed(2)}</Text>
+                <Text style={styles.probOdds}>{(typeof item.cuota === 'number' ? item.cuota : 0).toFixed(2)}</Text>
               </View>
             ))}
           </View>
           <Text style={[styles.bodyText, { marginTop: 8, textAlign: 'center', color: colors.text.muted, fontSize: 11 }]}>
-            🏆 Resultado más probable: <Text style={{ color: colors.accent.gold, fontWeight: 'bold' }}>{pred.resultadoMasProbable}</Text>
+            🏆 Resultado más probable: <Text style={{ color: colors.accent.gold, fontWeight: 'bold' }}>{pred.resultadoMasProbable ?? '-'}</Text>
           </Text>
         </Section>
 
+        {/* DOBLE OPORTUNIDAD */}
+        {pred.dobleOportunidad && (
+          <Section icon="🔀" title="DOBLE OPORTUNIDAD" accent="#60a5fa" delay={200}>
+            <View style={styles.row3}>
+              {[
+                { label: `1X (${selectedMatch.homeTeam} o Empate)`, data: pred.dobleOportunidad.localOEmpate, color: colors.accent.green },
+                { label: `X2 (Empate o ${selectedMatch.awayTeam})`, data: pred.dobleOportunidad.visitanteOEmpate, color: colors.accent.gold },
+                { label: `1-2 (Local o Visitante)`, data: pred.dobleOportunidad.localOVisitante, color: colors.accent.blue },
+              ].map(item => (
+                <View key={item.label} style={styles.probCell}>
+                  <Text style={[styles.probLabel, { fontSize: 9 }]} numberOfLines={2}>{item.label}</Text>
+                  <Text style={[styles.probValue, { color: item.color }]}>{item.data?.probabilidad ?? 0}%</Text>
+                  <AnimatedProbBar val={item.data?.probabilidad ?? 0} color={item.color} delay={0} />
+                  <Text style={styles.probOdds}>{(typeof item.data?.cuota === 'number' ? item.data.cuota : 0).toFixed(2)}</Text>
+                </View>
+              ))}
+            </View>
+          </Section>
+        )}
+
+        {/* MARCAR POR MITAD — below Doble Oportunidad */}
+        {pred.marcadorPorTiempo && (
+          <Section icon="⏱️" title="MARCAR POR MITAD" accent="#06b6d4" delay={210}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeadCell, { flex: 1.4, textAlign: 'left', color: '#4A5A6E' }]}>Equipo</Text>
+              <Text style={[styles.tableHeadCell, { color: '#06b6d4' }]}>1ª Parte</Text>
+              <Text style={[styles.tableHeadCell, { color: '#1A6BFF' }]}>2ª Parte</Text>
+              <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota 1ª</Text>
+            </View>
+            {[
+              { label: `${getFlag(selectedMatch.homeTeam)} Local`, data: pred.marcadorPorTiempo.local },
+              { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, data: pred.marcadorPorTiempo.visitante },
+            ].map((row, i) => (
+              <View key={row.label} style={[styles.lineRow, i % 2 === 0 && styles.lineRowHighlight]}>
+                <Text style={[styles.lineLabelText, { flex: 1.4 }]}>{row.label}</Text>
+                <Text style={[styles.lineVal, { color: '#06b6d4' }]}>{row.data?.primeraParteProb ?? 0}%</Text>
+                <Text style={[styles.lineVal, { color: colors.accent.blue }]}>{row.data?.segundaParteProb ?? 0}%</Text>
+                <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{(typeof row.data?.cuotaPrimeraParte === 'number' ? row.data.cuotaPrimeraParte : 0).toFixed(2)}</Text>
+              </View>
+            ))}
+          </Section>
+        )}
+
         {/* GOLES */}
-        <Section icon="⚽" title="PROBABILIDAD DE GOLES" delay={240}>
+        <Section icon="⚽" title="PROBABILIDAD DE GOLES" accent="#22c55e" delay={240}>
           {/* Header tabla */}
           <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeadCell, { flex: 1.4 }]}>Mercado</Text>
-            <Text style={styles.tableHeadCell}>{getFlag(selectedMatch.homeTeam)} Local</Text>
-            <Text style={styles.tableHeadCell}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
+            <Text style={[styles.tableHeadCell, { flex: 1.4, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
+            <Text style={[styles.tableHeadCell, { color: '#22c55e' }]}>{getFlag(selectedMatch.homeTeam)} Local</Text>
+            <Text style={[styles.tableHeadCell, { color: '#22c55e' }]}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
             <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
           </View>
           {pred.goles && [
@@ -1692,70 +1883,359 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             { label: '+1.5 goles', data: pred.goles.over1_5 },
             { label: '+2.5 goles', data: pred.goles.over2_5 },
             { label: '+3.5 goles', data: pred.goles.over3_5 },
-          ].map((row, i) => (
+            { label: '+4.5 goles', data: pred.goles.over4_5 },
+            { label: '+5.5 goles', data: pred.goles.over5_5 },
+            { label: '+6.5 goles', data: pred.goles.over6_5 },
+            { label: '+7.5 goles', data: pred.goles.over7_5 },
+          ].filter(row => row.data != null && (row.data?.total ?? 0) >= 2).map((row, i) => (
             <LineRow
               key={row.label}
               label={row.label}
-              local={row.data.local}
-              visitante={row.data.visitante}
-              total={row.data.total}
+              local={row.data?.local ?? 0}
+              visitante={row.data?.visitante ?? 0}
+              total={row.data?.total ?? 0}
               highlight={i % 2 === 0}
             />
           ))}
           <View style={[styles.lineRow, { backgroundColor: colors.accent.green + '18', marginTop: 2 }]}>
             <Text style={[styles.lineLabelText, { color: colors.accent.green, fontWeight: '700' }]}>xG esperados</Text>
-            <Text style={[styles.lineVal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados.local}</Text>
-            <Text style={[styles.lineVal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados.visitante}</Text>
-            <Text style={[styles.lineValTotal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados.total}</Text>
+            <Text style={[styles.lineVal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados?.local ?? '-'}</Text>
+            <Text style={[styles.lineVal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados?.visitante ?? '-'}</Text>
+            <Text style={[styles.lineValTotal, { color: colors.accent.green, fontWeight: '700' }]}>{pred.golesEsperados?.total ?? '-'}</Text>
           </View>
         </Section>
 
-        {/* TIROS A PUERTA */}
-        <Section icon="🎯" title="TIROS A PUERTA" delay={320}>
-          {pred.tiros && (
-            <>
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeadCell, { flex: 1.4 }]}>Stat</Text>
-                <Text style={styles.tableHeadCell}>{getFlag(selectedMatch.homeTeam)} Local</Text>
-                <Text style={styles.tableHeadCell}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
-                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
+        {/* GOLES POR MITAD — expanded to +5.5 */}
+        {pred.golesporMitad && (
+          <Section icon="⏱️" title="GOLES POR MITAD" accent="#34d399" delay={280}>
+            {/* xG split info */}
+            <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#34d399', fontSize: 13 }]}>{pred.golesporMitad.local_xG_1H}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} xG 1H</Text>
               </View>
-              {[
-                { label: 'Tiros totales', data: pred.tiros.total },
-                { label: 'A puerta', data: pred.tiros.a_puerta },
-              ].map((row, i) => (
-                <View key={row.label} style={[styles.lineRow, i % 2 === 0 && styles.lineRowHighlight]}>
-                  <Text style={styles.lineLabelText}>{row.label}</Text>
-                  <Text style={styles.lineVal}>{row.data.local}</Text>
-                  <Text style={styles.lineVal}>{row.data.visitante}</Text>
-                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{row.data.total}</Text>
-                </View>
-              ))}
-              {pred.tiros.jugadores?.length > 0 && (
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#34d399', fontSize: 13 }]}>{pred.golesporMitad.visitante_xG_1H}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} xG 1H</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#34d399', fontSize: 13 }]}>{pred.golesporMitad.local_xG_2H}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} xG 2H</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#34d399', fontSize: 13 }]}>{pred.golesporMitad.visitante_xG_2H}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} xG 2H</Text>
+              </View>
+            </View>
+            {/* 1ª Parte */}
+            <View style={styles.tableGroupChip}>
+              <View style={[styles.tableGroupChipDot, { backgroundColor: '#34d399' }]} />
+              <Text style={styles.tableGroupChipText}>1ª Parte</Text>
+            </View>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
+              <Text style={styles.tableHeadCell}>Prob.</Text>
+              <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
+            </View>
+            {[
+              { label: '+0.5 goles 1H', prob: pred.golesporMitad.over0_5_1H, cuota: pred.golesporMitad.cuota_over0_5_1H },
+              { label: '+1.5 goles 1H', prob: pred.golesporMitad.over1_5_1H, cuota: pred.golesporMitad.cuota_over1_5_1H },
+              { label: '+2.5 goles 1H', prob: pred.golesporMitad.over2_5_1H, cuota: pred.golesporMitad.cuota_over2_5_1H },
+              { label: '+3.5 goles 1H', prob: pred.golesporMitad.over3_5_1H, cuota: pred.golesporMitad.cuota_over3_5_1H },
+              { label: '+4.5 goles 1H', prob: pred.golesporMitad.over4_5_1H, cuota: undefined },
+              { label: '+5.5 goles 1H', prob: pred.golesporMitad.over5_5_1H, cuota: undefined },
+            ].filter(r => r.prob != null && (r.prob ?? 0) >= 2 && (r.prob ?? 0) <= 90).map((row, i) => (
+              <View key={row.label} style={[styles.lineRow, i % 2 === 0 && styles.lineRowHighlight]}>
+                <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{row.label}</Text>
+                <Text style={[styles.lineVal, { color: (row.prob ?? 0) >= 60 ? '#34d399' : colors.text.primary }]}>{row.prob ?? 0}%</Text>
+                <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>
+                  {row.cuota != null ? (row.cuota as number).toFixed(2) : Math.max(1.10, parseFloat((100/Math.max(1,row.prob??1)*0.93).toFixed(2))).toFixed(2)}
+                </Text>
+              </View>
+            ))}
+            {/* 2ª Parte */}
+            <View style={styles.tableGroupChip}>
+              <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
+              <Text style={styles.tableGroupChipText}>2ª Parte</Text>
+            </View>
+            {[
+              { label: '+0.5 goles 2H', prob: pred.golesporMitad.over0_5_2H, cuota: pred.golesporMitad.cuota_over0_5_2H },
+              { label: '+1.5 goles 2H', prob: pred.golesporMitad.over1_5_2H, cuota: pred.golesporMitad.cuota_over1_5_2H },
+              { label: '+2.5 goles 2H', prob: pred.golesporMitad.over2_5_2H, cuota: pred.golesporMitad.cuota_over2_5_2H },
+              { label: '+3.5 goles 2H', prob: pred.golesporMitad.over3_5_2H, cuota: pred.golesporMitad.cuota_over3_5_2H },
+              { label: '+4.5 goles 2H', prob: pred.golesporMitad.over4_5_2H, cuota: undefined },
+              { label: '+5.5 goles 2H', prob: pred.golesporMitad.over5_5_2H, cuota: undefined },
+            ].filter(r => r.prob != null && (r.prob ?? 0) >= 2 && (r.prob ?? 0) <= 90).map((row, i) => (
+              <View key={row.label} style={[styles.lineRow, i % 2 === 0 && styles.lineRowHighlight]}>
+                <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{row.label}</Text>
+                <Text style={[styles.lineVal, { color: (row.prob ?? 0) >= 60 ? '#34d399' : colors.text.primary }]}>{row.prob ?? 0}%</Text>
+                <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>
+                  {row.cuota != null ? (row.cuota as number).toFixed(2) : Math.max(1.10, parseFloat((100/Math.max(1,row.prob??1)*0.93).toFixed(2))).toFixed(2)}
+                </Text>
+              </View>
+            ))}
+          </Section>
+        )}
+
+        {/* TIROS TOTALES — expanded 15-20 thresholds with team/half breakdown */}
+        {pred.tiros && (
+          <Section icon="⚡" title="TIROS (TOTALES)" accent="#f97316" delay={310}>
+            {/* Summary stats */}
+            <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#f97316' }]}>{pred.tiros.total.total ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>Total esp.</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={styles.bigStatVal}>{pred.tiros.total.local ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={styles.bigStatVal}>{pred.tiros.total.visitante ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
+              </View>
+            </View>
+            {/* Over/under thresholds: total, local, visitante — 8.5 to 25.5 */}
+            {(() => {
+              function pOver(lambda: number, n: number): number {
+                let cum = 0;
+                for (let k = 0; k <= Math.floor(n); k++) {
+                  let f = 1; for (let i = 1; i <= k; i++) f *= i;
+                  cum += Math.exp(-lambda) * Math.pow(lambda, k) / f;
+                }
+                return Math.max(1, Math.min(99, Math.round((1 - cum) * 100)));
+              }
+              const tTotal = pred.tiros.total.total ?? 0;
+              const tLocal = pred.tiros.total.local ?? 0;
+              const tVisit = pred.tiros.total.visitante ?? 0;
+              const tLocal1H = Math.round(tLocal * 0.46);
+              const tVisit1H = Math.round(tVisit * 0.44);
+              const tLocal2H = tLocal - tLocal1H;
+              const tVisit2H = tVisit - tVisit1H;
+              const tTotal1H = tLocal1H + tVisit1H;
+              const tTotal2H = tLocal2H + tVisit2H;
+              // Generate thresholds: 8.5 to 25.5 step 1, filter for realistic range
+              const thresholds = Array.from({length: 18}, (_, i) => 8.5 + i);
+              const rowsTotal = thresholds.map(th => ({
+                label: `+${th}`,
+                total: pOver(tTotal, th),
+                local: pOver(tLocal, th),
+                visit: pOver(tVisit, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              const rows1H = [4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5].map(th => ({
+                label: `+${th} 1H`,
+                total: pOver(tTotal1H, th),
+                local: pOver(tLocal1H, th),
+                visit: pOver(tVisit1H, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              const rows2H = [4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5].map(th => ({
+                label: `+${th} 2H`,
+                total: pOver(tTotal2H, th),
+                local: pOver(tLocal2H, th),
+                visit: pOver(tVisit2H, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              return (
                 <>
-                  <Text style={styles.subSectionTitle}>Por jugador</Text>
-                  {pred.tiros.jugadores.map(j => (
-                    <View key={j.nombre} style={styles.playerRow}>
-                      <Text style={styles.playerRowFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'}</Text>
-                      <Text style={styles.playerRowName} numberOfLines={1}>{j.nombre}</Text>
-                      <Text style={styles.playerRowStat}>{j.tiros} tiros</Text>
-                      <Text style={[styles.playerRowStat, { color: colors.accent.green }]}>{j.a_puerta} a puerta</Text>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#f97316' }]} />
+                    <Text style={styles.tableGroupChipText}>Todo el partido</Text>
+                  </View>
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeadCell, { width: 44, textAlign: 'left' }]}>Umbral</Text>
+                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
+                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
+                    <Text style={[styles.tableHeadCell, { width: 46, color: '#f97316' }]}>Total</Text>
+                    <Text style={[styles.tableHeadCell, { width: 50, color: colors.accent.gold }]}>Cuota</Text>
+                  </View>
+                  {rowsTotal.map((r, i) => (
+                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                      <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                      <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
+                      <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
+                      <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
+                      <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
                     </View>
                   ))}
+                  {rows1H.length > 0 && (
+                    <>
+                      <View style={styles.tableGroupChip}>
+                        <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
+                        <Text style={styles.tableGroupChipText}>1ª Parte</Text>
+                      </View>
+                      {rows1H.map((r, i) => (
+                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
+                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
+                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                  {rows2H.length > 0 && (
+                    <>
+                      <View style={styles.tableGroupChip}>
+                        <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
+                        <Text style={styles.tableGroupChipText}>2ª Parte</Text>
+                      </View>
+                      {rows2H.map((r, i) => (
+                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.local}%</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#f97316' : '#4A5A6E' }]}>{r.visit}%</Text>
+                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#f97316' : colors.text.primary }]}>{r.total}%</Text>
+                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
                 </>
-              )}
-            </>
-          )}
-        </Section>
+              );
+            })()}
+            {/* Players breakdown */}
+            {pred.tiros.jugadores?.length > 0 && (
+              <>
+                <Text style={[styles.subSectionTitle, { marginTop: 8 }]}>Por jugador</Text>
+                {pred.tiros.jugadores.map(j => (
+                  <View key={j.nombre} style={styles.playerRow}>
+                    <Text style={styles.playerRowFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'}</Text>
+                    <Text style={styles.playerRowName} numberOfLines={1}>{j.nombre}</Text>
+                    <Text style={styles.playerRowStat}>{j.tiros} tiros</Text>
+                    <Text style={[styles.playerRowStat, { color: '#f97316' }]}>{j.a_puerta} puerta</Text>
+                  </View>
+                ))}
+              </>
+            )}
+          </Section>
+        )}
+
+        {/* TIROS A PUERTA — expanded with team/half breakdown */}
+        {pred.tiros && (
+          <Section icon="🎯" title="TIROS A PUERTA" accent="#fb923c" delay={320}>
+            {/* Summary */}
+            <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
+              <View style={styles.bigStatCell}>
+                <Text style={[styles.bigStatVal, { color: '#fb923c' }]}>{pred.tiros.a_puerta?.total ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>Total esp.</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={styles.bigStatVal}>{pred.tiros.a_puerta?.local ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local</Text>
+              </View>
+              <View style={styles.bigStatCell}>
+                <Text style={styles.bigStatVal}>{pred.tiros.a_puerta?.visitante ?? 0}</Text>
+                <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
+              </View>
+            </View>
+            {(() => {
+              function pOver(lambda: number, n: number): number {
+                let cum = 0;
+                for (let k = 0; k <= Math.floor(n); k++) {
+                  let f = 1; for (let i = 1; i <= k; i++) f *= i;
+                  cum += Math.exp(-lambda) * Math.pow(lambda, k) / f;
+                }
+                return Math.max(1, Math.min(99, Math.round((1 - cum) * 100)));
+              }
+              const tTotal = pred.tiros.a_puerta?.total ?? 0;
+              const tLocal = pred.tiros.a_puerta?.local ?? 0;
+              const tVisit = pred.tiros.a_puerta?.visitante ?? 0;
+              const tLocal1H = Math.round(tLocal * 0.46);
+              const tVisit1H = Math.round(tVisit * 0.44);
+              const tLocal2H = tLocal - tLocal1H;
+              const tVisit2H = tVisit - tVisit1H;
+              const tTotal1H = tLocal1H + tVisit1H;
+              const tTotal2H = tLocal2H + tVisit2H;
+              const thresholds = [2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5];
+              const rowsTotal = thresholds.map(th => ({
+                label: `+${th}`,
+                total: pOver(tTotal, th),
+                local: pOver(tLocal, th),
+                visit: pOver(tVisit, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              const rows1H = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5].map(th => ({
+                label: `+${th} 1H`,
+                total: pOver(tTotal1H, th),
+                local: pOver(tLocal1H, th),
+                visit: pOver(tVisit1H, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              const rows2H = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5].map(th => ({
+                label: `+${th} 2H`,
+                total: pOver(tTotal2H, th),
+                local: pOver(tLocal2H, th),
+                visit: pOver(tVisit2H, th),
+              })).filter(r => r.total >= 3 && r.total <= 94);
+              return (
+                <>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#fb923c' }]} />
+                    <Text style={styles.tableGroupChipText}>Todo el partido</Text>
+                  </View>
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeadCell, { width: 44, textAlign: 'left' }]}>Umbral</Text>
+                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.homeTeam)} Loc</Text>
+                    <Text style={[styles.tableHeadCell, { width: 44 }]}>{getFlag(selectedMatch.awayTeam)} Vis</Text>
+                    <Text style={[styles.tableHeadCell, { width: 46, color: '#fb923c' }]}>Total</Text>
+                    <Text style={[styles.tableHeadCell, { width: 50, color: colors.accent.gold }]}>Cuota</Text>
+                  </View>
+                  {rowsTotal.map((r, i) => (
+                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                      <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                      <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
+                      <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
+                      <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
+                      <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
+                    </View>
+                  ))}
+                  {rows1H.length > 0 && (
+                    <>
+                      <View style={styles.tableGroupChip}>
+                        <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
+                        <Text style={styles.tableGroupChipText}>1ª Parte</Text>
+                      </View>
+                      {rows1H.map((r, i) => (
+                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
+                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
+                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                  {rows2H.length > 0 && (
+                    <>
+                      <View style={styles.tableGroupChip}>
+                        <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
+                        <Text style={styles.tableGroupChipText}>2ª Parte</Text>
+                      </View>
+                      {rows2H.map((r, i) => (
+                        <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                          <Text style={[styles.lineLabelText, { width: 44, flex: undefined, fontSize: 11, fontWeight: '700', color: colors.text.primary }]}>{r.label}</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.local >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.local}%</Text>
+                          <Text style={[styles.lineVal, { width: 44, color: r.visit >= 60 ? '#fb923c' : '#4A5A6E' }]}>{r.visit}%</Text>
+                          <Text style={[styles.lineVal, { width: 46, fontSize: 13, fontWeight: '800', color: r.total >= 60 ? '#fb923c' : colors.text.primary }]}>{r.total}%</Text>
+                          <Text style={[styles.lineValTotal, { width: 50, color: colors.accent.gold }]}>{Math.max(1.10, parseFloat((100/Math.max(1,r.total)*0.93).toFixed(2))).toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </Section>
+        )}
 
         {/* CÓRNERS */}
-        <Section icon="🚩" title="CÓRNERS" delay={400}>
+        <Section icon="🚩" title="CÓRNERS" accent="#f59e0b" delay={400}>
           {pred.corners && (
             <>
-              <View style={styles.row3} style={{ gap: 8, marginBottom: 10 }}>
+              {/* Resumen */}
+              <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
                 <View style={styles.bigStatCell}>
                   <Text style={[styles.bigStatVal, { color: colors.accent.gold }]}>{pred.corners.total_esperado}</Text>
-                  <Text style={styles.bigStatLbl}>Esperados</Text>
+                  <Text style={styles.bigStatLbl}>Total esp.</Text>
                 </View>
                 <View style={styles.bigStatCell}>
                   <Text style={styles.bigStatVal}>{pred.corners.local}</Text>
@@ -1766,33 +2246,103 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
                 </View>
               </View>
-              <View style={styles.marketsGrid}>
-                {[
-                  { label: '+8.5', val: pred.corners.over8_5 },
-                  { label: '+9.5', val: pred.corners.over9_5 },
-                  { label: '+10.5', val: pred.corners.over10_5 },
-                  { label: '-8.5', val: pred.corners.under8_5 },
-                ].map(m => (
-                  <View key={m.label} style={styles.marketCell}>
-                    <Text style={styles.marketLabel}>Córners {m.label}</Text>
-                    <Text style={[styles.marketVal, { color: (m.val ?? 0) >= 55 ? colors.accent.green : colors.text.primary }]}>
-                      {m.val ?? '-'}%
-                    </Text>
-                  </View>
-                ))}
+
+              {/* Todo el partido — Over/Under con cuotas */}
+              <View style={styles.tableGroupChip}>
+                <View style={[styles.tableGroupChipDot, { backgroundColor: '#f59e0b' }]} />
+                <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
+                <Text style={styles.tableHeadCell}>Prob.</Text>
+                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
+              </View>
+              {[
+                { label: 'Córners +6.5',  prob: pred.corners.over6_5,  cuota: pred.corners.cuota_over8_5 },
+                { label: 'Córners +7.5',  prob: pred.corners.over7_5,  cuota: null },
+                { label: 'Córners +8.5',  prob: pred.corners.over8_5,  cuota: pred.corners.cuota_over8_5 },
+                { label: 'Córners +9.5',  prob: pred.corners.over9_5,  cuota: pred.corners.cuota_over9_5 },
+                { label: 'Córners +10.5', prob: pred.corners.over10_5, cuota: pred.corners.cuota_over10_5 },
+                { label: 'Córners +11.5', prob: pred.corners.over11_5, cuota: null },
+                { label: 'Córners -8.5',  prob: pred.corners.under8_5, cuota: null },
+              ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map((r, i) => (
+                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
+                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.cuota ? r.cuota.toFixed(2) : '-'}</Text>
+                </View>
+              ))}
+
+              {/* 1ª Parte */}
+              {(pred.corners.local_1H != null) && (
+                <>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#60a5fa' }]} />
+                    <Text style={styles.tableGroupChipText}>1ª Parte</Text>
+                  </View>
+                  <View style={[styles.row3, { gap: 6, marginBottom: 6 }]}>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{(pred.corners.local_1H ?? 0) + (pred.corners.visitante_1H ?? 0)}</Text>
+                      <Text style={styles.bigStatLbl}>Total 1H</Text>
+                    </View>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{pred.corners.local_1H ?? 0}</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local 1H</Text>
+                    </View>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{pred.corners.visitante_1H ?? 0}</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit. 1H</Text>
+                    </View>
+                  </View>
+                  {[
+                    { label: '1H Córners +3.5', prob: pred.corners.over3_5_1H },
+                    { label: '1H Córners +4.5', prob: pred.corners.over4_5_1H },
+                    { label: '1H Córners +5.5', prob: pred.corners.over5_5_1H },
+                  ].filter(r => r.prob != null).map((r, i) => (
+                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                      <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
+                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>-</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* 2ª Parte */}
+              {(pred.corners.local_2H != null) && (
+                <>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#818cf8' }]} />
+                    <Text style={styles.tableGroupChipText}>2ª Parte</Text>
+                  </View>
+                  <View style={[styles.row3, { gap: 6 }]}>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{(pred.corners.local_2H ?? 0) + (pred.corners.visitante_2H ?? 0)}</Text>
+                      <Text style={styles.bigStatLbl}>Total 2H</Text>
+                    </View>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{pred.corners.local_2H ?? 0}</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.homeTeam)} Local 2H</Text>
+                    </View>
+                    <View style={styles.bigStatCell}>
+                      <Text style={styles.bigStatVal}>{pred.corners.visitante_2H ?? 0}</Text>
+                      <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit. 2H</Text>
+                    </View>
+                  </View>
+                </>
+              )}
             </>
           )}
         </Section>
 
         {/* FALTAS */}
-        <Section icon="⚠️" title="FALTAS" delay={480}>
+        <Section icon="⚠️" title="FALTAS" accent="#ef4444" delay={480}>
           {pred.faltas && (
             <>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+              <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
                 <View style={styles.bigStatCell}>
                   <Text style={[styles.bigStatVal, { color: colors.accent.red }]}>{pred.faltas.total_esperado}</Text>
-                  <Text style={styles.bigStatLbl}>Esperadas</Text>
+                  <Text style={styles.bigStatLbl}>Total esp.</Text>
                 </View>
                 <View style={styles.bigStatCell}>
                   <Text style={styles.bigStatVal}>{pred.faltas.local}</Text>
@@ -1803,26 +2353,69 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
                 </View>
               </View>
-              <View style={styles.marketsGrid}>
-                <View style={styles.marketCell}>
-                  <Text style={styles.marketLabel}>+20.5 faltas</Text>
-                  <Text style={[styles.marketVal, { color: pred.faltas.over20_5 >= 55 ? colors.accent.green : colors.text.primary }]}>
-                    {pred.faltas.over20_5}%
-                  </Text>
-                </View>
+
+              {/* Over/under thresholds with odds */}
+              <View style={styles.tableGroupChip}>
+                <View style={[styles.tableGroupChipDot, { backgroundColor: '#ef4444' }]} />
+                <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
+                <Text style={styles.tableHeadCell}>Prob.</Text>
+                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
+              </View>
+              {[
+                { label: 'Faltas +15.5', prob: pred.faltas.over15_5 },
+                { label: 'Faltas +17.5', prob: pred.faltas.over17_5 },
+                { label: 'Faltas +20.5', prob: pred.faltas.over20_5, cuota: pred.faltas.cuota_over20_5 },
+                { label: 'Faltas +24.5', prob: pred.faltas.over24_5 },
+              ].filter(r => r.prob != null).map((r, i) => (
+                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.green : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
+                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{(r as any).cuota ? ((r as any).cuota as number).toFixed(2) : '-'}</Text>
+                </View>
+              ))}
+
+              {/* Por equipo por mitad */}
+              {pred.faltas.local_1H != null && (
+                <>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#ef4444' }]} />
+                    <Text style={styles.tableGroupChipText}>Desglose por equipo</Text>
+                  </View>
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Equipo</Text>
+                    <Text style={styles.tableHeadCell}>1ª P.</Text>
+                    <Text style={styles.tableHeadCell}>2ª P.</Text>
+                    <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
+                  </View>
+                  {[
+                    { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.faltas.local_1H, h2: pred.faltas.local_2H, total: pred.faltas.local },
+                    { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.faltas.visitante_1H, h2: pred.faltas.visitante_2H, total: pred.faltas.visitante },
+                  ].map((r, i) => (
+                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                      <Text style={styles.lineVal}>{r.h1 ?? '-'}</Text>
+                      <Text style={styles.lineVal}>{r.h2 ?? '-'}</Text>
+                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.total ?? '-'}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
             </>
           )}
         </Section>
 
         {/* TARJETAS */}
-        <Section icon="🟨" title="TARJETAS" delay={560}>
+        <Section icon="🟨" title="TARJETAS" accent="#fbbf24" delay={560}>
           {pred.tarjetas && (
             <>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+              {/* Totales */}
+              <View style={[styles.row3, { gap: 6, marginBottom: 8 }]}>
                 <View style={styles.bigStatCell}>
                   <Text style={[styles.bigStatVal, { color: colors.accent.gold }]}>{pred.tarjetas.total_esperado}</Text>
-                  <Text style={styles.bigStatLbl}>🟨 Esperadas</Text>
+                  <Text style={styles.bigStatLbl}>🟨 Total esp.</Text>
                 </View>
                 <View style={styles.bigStatCell}>
                   <Text style={styles.bigStatVal}>{pred.tarjetas.amarillas_local}</Text>
@@ -1833,34 +2426,74 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   <Text style={styles.bigStatLbl}>{getFlag(selectedMatch.awayTeam)} Visit.</Text>
                 </View>
               </View>
-              <View style={styles.marketsGrid}>
-                {[
-                  { label: '+2.5 🟨', val: pred.tarjetas.over2_5 },
-                  { label: '+3.5 🟨', val: pred.tarjetas.over3_5 },
-                  { label: '+4.5 🟨', val: pred.tarjetas.over4_5 },
-                  { label: '-3.5 🟨', val: pred.tarjetas.under3_5 },
-                ].map(m => (
-                  <View key={m.label} style={styles.marketCell}>
-                    <Text style={styles.marketLabel}>{m.label}</Text>
-                    <Text style={[styles.marketVal, { color: (m.val ?? 0) >= 55 ? colors.accent.gold : colors.text.primary }]}>
-                      {m.val ?? '-'}%
-                    </Text>
-                  </View>
-                ))}
+
+              {/* Over/under thresholds with odds */}
+              <View style={styles.tableGroupChip}>
+                <View style={[styles.tableGroupChipDot, { backgroundColor: '#fbbf24' }]} />
+                <Text style={styles.tableGroupChipText}>Todo el partido</Text>
               </View>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Mercado</Text>
+                <Text style={styles.tableHeadCell}>Prob.</Text>
+                <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Cuota</Text>
+              </View>
+              {[
+                { label: '🟨 +1.5 tarjetas', prob: pred.tarjetas.over1_5, cuota: null },
+                { label: '🟨 +2.5 tarjetas', prob: pred.tarjetas.over2_5, cuota: pred.tarjetas.cuota_over2_5 },
+                { label: '🟨 +3.5 tarjetas', prob: pred.tarjetas.over3_5, cuota: pred.tarjetas.cuota_over3_5 },
+                { label: '🟨 +4.5 tarjetas', prob: pred.tarjetas.over4_5, cuota: null },
+                { label: '🟨 +5.5 tarjetas', prob: pred.tarjetas.over5_5, cuota: null },
+                { label: '🟨 -3.5 tarjetas', prob: pred.tarjetas.under3_5, cuota: null },
+              ].filter(r => r.prob != null && (r.prob ?? 0) > 0).map((r, i) => (
+                <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                  <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                  <Text style={[styles.lineVal, { color: (r.prob ?? 0) >= 60 ? colors.accent.gold : colors.text.primary }]}>{r.prob ?? '-'}%</Text>
+                  <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.cuota ? (r.cuota as number).toFixed(2) : '-'}</Text>
+                </View>
+              ))}
+
               {pred.tarjetas.rojaProb > 0 && (
                 <Text style={[styles.bodyText, { marginTop: 6, color: colors.accent.red }]}>
                   🟥 Probabilidad de roja: {pred.tarjetas.rojaProb}%
                 </Text>
               )}
+
+              {/* Por equipo por mitad */}
+              {pred.tarjetas.amarillas_local_1H != null && (
+                <>
+                  <View style={styles.tableGroupChip}>
+                    <View style={[styles.tableGroupChipDot, { backgroundColor: '#fbbf24' }]} />
+                    <Text style={styles.tableGroupChipText}>Desglose por equipo</Text>
+                  </View>
+                  <View style={styles.tableHeader}>
+                    <Text style={[styles.tableHeadCell, { flex: 1.6, textAlign: 'left', color: '#4A5A6E' }]}>Equipo</Text>
+                    <Text style={styles.tableHeadCell}>1ª P.</Text>
+                    <Text style={styles.tableHeadCell}>2ª P.</Text>
+                    <Text style={[styles.tableHeadCell, { color: colors.accent.gold }]}>Total</Text>
+                  </View>
+                  {[
+                    { label: `${getFlag(selectedMatch.homeTeam)} Local`, h1: pred.tarjetas.amarillas_local_1H, h2: (pred.tarjetas.amarillas_local ?? 0) - (pred.tarjetas.amarillas_local_1H ?? 0), total: pred.tarjetas.amarillas_local },
+                    { label: `${getFlag(selectedMatch.awayTeam)} Visit.`, h1: pred.tarjetas.amarillas_visitante_1H, h2: (pred.tarjetas.amarillas_visitante ?? 0) - (pred.tarjetas.amarillas_visitante_1H ?? 0), total: pred.tarjetas.amarillas_visitante },
+                  ].map((r, i) => (
+                    <View key={r.label} style={[styles.lineRow, i%2===0 && styles.lineRowHighlight]}>
+                      <Text style={[styles.lineLabelText, { flex: 1.6 }]}>{r.label}</Text>
+                      <Text style={styles.lineVal}>{r.h1 ?? '-'}</Text>
+                      <Text style={styles.lineVal}>{r.h2 ?? '-'}</Text>
+                      <Text style={[styles.lineValTotal, { color: colors.accent.gold }]}>{r.total ?? '-'}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* Jugadores en riesgo */}
               {pred.tarjetas.jugadores_riesgo?.length > 0 && (
                 <>
-                  <Text style={styles.subSectionTitle}>Jugadores en riesgo 🟨</Text>
+                  <Text style={[styles.subSectionTitle, { marginTop: 10 }]}>🟨 Jugadores con más riesgo</Text>
                   {pred.tarjetas.jugadores_riesgo.map(j => (
                     <View key={j.nombre} style={styles.playerRow}>
                       <Text style={styles.playerRowFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) || '🏠' : getFlag(selectedMatch.awayTeam) || '✈️'}</Text>
                       <Text style={styles.playerRowName}>{j.nombre}</Text>
-                      <Text style={[styles.playerRowStat, { color: colors.accent.gold }]}>{j.probabilidad}% prob. amarilla</Text>
+                      <Text style={[styles.playerRowStat, { color: colors.accent.gold }]}>{j.probabilidad}% amarilla</Text>
                     </View>
                   ))}
                 </>
@@ -1870,26 +2503,26 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* GOLEADORES */}
-        <Section icon="⚽" title="GOLEADORES PREVISTOS" delay={640}>
+        <Section icon="⚽" title="GOLEADORES PREVISTOS" accent="#f59e0b" delay={640}>
           {pred.goleadores && (
             <>
               <View style={styles.topScorerBox}>
                 <Text style={styles.topScorerLabel}>⭐ PRIMER GOLEADOR</Text>
-                <Text style={styles.topScorerName}>{getFlag(pred.goleadores.primer_goleador.equipo)} {pred.goleadores.primer_goleador.nombre}</Text>
+                <Text style={styles.topScorerName}>{getFlag(pred.goleadores?.primer_goleador?.equipo ?? '')} {pred.goleadores?.primer_goleador?.nombre ?? '-'}</Text>
                 <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
-                  <Text style={[styles.topScorerStat, { color: colors.accent.green }]}>{pred.goleadores.primer_goleador.probabilidad}% probabilidad</Text>
-                  <Text style={[styles.topScorerStat, { color: colors.accent.gold }]}>Cuota: {pred.goleadores.primer_goleador.cuota.toFixed(2)}</Text>
+                  <Text style={[styles.topScorerStat, { color: colors.accent.green }]}>{pred.goleadores?.primer_goleador?.probabilidad ?? 0}% probabilidad</Text>
+                  <Text style={[styles.topScorerStat, { color: colors.accent.gold }]}>Cuota: {(typeof pred.goleadores?.primer_goleador?.cuota === 'number' ? pred.goleadores.primer_goleador.cuota : 0).toFixed(2)}</Text>
                 </View>
               </View>
-              {pred.goleadores.anytime?.length > 0 && (
+              {(pred.goleadores?.anytime?.length ?? 0) > 0 && (
                 <>
                   <Text style={styles.subSectionTitle}>Anytime scorer</Text>
-                  {pred.goleadores.anytime.map(g => (
+                  {pred.goleadores!.anytime.map(g => (
                     <View key={g.nombre} style={styles.scorerRow}>
                       <Text style={styles.scorerFlag}>{getFlag(g.equipo)}</Text>
                       <Text style={styles.scorerName}>{g.nombre}</Text>
                       <Text style={[styles.scorerStat, { color: colors.accent.green }]}>{g.probabilidad}%</Text>
-                      <Text style={[styles.scorerStat, { color: colors.accent.gold }]}>{g.cuota.toFixed(2)}</Text>
+                      <Text style={[styles.scorerStat, { color: colors.accent.gold }]}>{(typeof g.cuota === 'number' ? g.cuota : 0).toFixed(2)}</Text>
                     </View>
                   ))}
                 </>
@@ -1898,22 +2531,50 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           )}
         </Section>
 
+        {/* ASISTENCIAS Y MERCADOS DE JUGADORES */}
+        {pred.mercadosJugadores && pred.mercadosJugadores.asistencias && pred.mercadosJugadores.asistencias.length > 0 && (
+          <Section icon="🎯" title="ASISTENCIAS PREVISTAS" accent="#60a5fa" delay={665}>
+            <Text style={styles.subSectionTitle}>Jugadores con más probabilidad de asistir</Text>
+            {pred.mercadosJugadores.asistencias.map(j => (
+              <View key={j.nombre} style={styles.scorerRow}>
+                <Text style={styles.scorerFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) : getFlag(selectedMatch.awayTeam)}</Text>
+                <Text style={styles.scorerName}>{j.nombre}</Text>
+                <Text style={[styles.scorerStat, { color: colors.accent.blue }]}>{j.probabilidad}%</Text>
+                <Text style={[styles.scorerStat, { color: colors.accent.gold }]}>{(typeof j.cuota === 'number' ? j.cuota : 0).toFixed(2)}</Text>
+              </View>
+            ))}
+            {pred.mercadosJugadores.scorerOAsistente && pred.mercadosJugadores.scorerOAsistente.length > 0 && (
+              <>
+                <Text style={[styles.subSectionTitle, { marginTop: 8 }]}>Gol o Asistencia (Score+Assist)</Text>
+                {pred.mercadosJugadores.scorerOAsistente.map(j => (
+                  <View key={j.nombre + '_sa'} style={styles.scorerRow}>
+                    <Text style={styles.scorerFlag}>{j.equipo === 'local' ? getFlag(selectedMatch.homeTeam) : getFlag(selectedMatch.awayTeam)}</Text>
+                    <Text style={styles.scorerName}>{j.nombre}</Text>
+                    <Text style={[styles.scorerStat, { color: colors.accent.green }]}>{j.probabilidad}%</Text>
+                    <Text style={[styles.scorerStat, { color: colors.accent.gold }]}>{(typeof j.cuota === 'number' ? j.cuota : 0).toFixed(2)}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+          </Section>
+        )}
+
         {/* RESULTADOS EXACTOS */}
         {pred.resultados_exactos && pred.resultados_exactos.length > 0 && (
-          <Section icon="🏆" title="RESULTADOS EXACTOS (TOP 5)" delay={680}>
+          <Section icon="🏆" title="RESULTADOS EXACTOS (TOP 5)" accent="#8b5cf6" delay={680}>
             {pred.resultados_exactos.map((r, i) => (
               <View key={r.resultado} style={[styles.exactScoreRow, i % 2 === 0 && styles.lineRowHighlight]}>
                 <Text style={[styles.exactScorePos, { color: i === 0 ? colors.accent.gold : colors.text.muted }]}>{i + 1}.</Text>
                 <Text style={styles.exactScoreResult}>{r.resultado}</Text>
                 <Text style={[styles.exactScoreProb, { color: i === 0 ? colors.accent.green : colors.text.primary }]}>{r.probabilidad}%</Text>
-                <Text style={styles.exactScoreOdds}>{r.cuota.toFixed(1)}</Text>
+                <Text style={styles.exactScoreOdds}>{(typeof r.cuota === 'number' ? r.cuota : 0).toFixed(1)}</Text>
               </View>
             ))}
           </Section>
         )}
 
         {/* MERCADOS */}
-        <Section icon="📊" title="MERCADOS DE GOLES" delay={720}>
+        <Section icon="📊" title="MERCADOS DE GOLES" accent="#10b981" delay={720}>
           <View style={styles.marketsGrid}>
             {[
               { label: 'Over 1.5', val: pred.mercados?.over1_5 },
@@ -1933,31 +2594,13 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         </Section>
 
-        {/* TÁCTICA */}
-        <Section icon="♟️" title="ANÁLISIS TÁCTICO" delay={800}>
-          <View style={styles.row2}>
-            <View style={styles.teamBox}>
-              <Text style={styles.teamBoxName}>{getFlag(selectedMatch.homeTeam)} Local</Text>
-              <Text style={[styles.teamBoxForm, { fontSize: 13 }]}>{analysis.tactico.sistemaLocal}</Text>
-            </View>
-            <View style={styles.teamBox}>
-              <Text style={styles.teamBoxName}>{getFlag(selectedMatch.awayTeam)} Visitante</Text>
-              <Text style={[styles.teamBoxForm, { fontSize: 13 }]}>{analysis.tactico.sistemaVisitante}</Text>
-            </View>
-          </View>
-          <Text style={[styles.bodyText, { marginTop: 8 }]}>{analysis.tactico.enfoque}</Text>
-          <Text style={[styles.bodyText, { marginTop: 6, fontWeight: '600', color: colors.accent.blue }]}>
-            {analysis.tactico.ventajaTactica}
-          </Text>
-          {analysis.tactico.clavesDelPartido?.map((k, i) => (
-            <Text key={i} style={[styles.bodyText, { marginTop: 4, color: colors.text.muted }]}>🔑 {k}</Text>
-          ))}
-        </Section>
+        {/* PANEL APUESTA DE LA IA — aquí, después de todos los análisis */}
+        <AiBetPanel match={selectedMatch} analysis={analysis} />
 
         {/* APUESTAS CON VALOR */}
         {analysis.apuestasRecomendadas?.length > 0 && (
           <Section icon="💰" title="APUESTAS CON VALOR" accent={colors.accent.gold} delay={760}>
-            {analysis.apuestasRecomendadas.slice(0, 3).map((bet, i) => (
+            {analysis.apuestasRecomendadas.map((bet, i) => (
               <View key={i} style={[styles.betCard, i === 0 && styles.betCardTop]}>
                 {i === 0 && (
                   <View style={styles.topPickBadge}>
@@ -1966,8 +2609,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 )}
                 <View style={styles.betHead}>
                   <Text style={styles.betMarket}>{bet.mercado}</Text>
-                  <View style={[styles.betValBadge, { backgroundColor: bet.valor >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
-                    <Text style={styles.betValText}>{bet.valor >= 0 ? '+' : ''}{(bet.valor * 100).toFixed(1)}% value</Text>
+                  <View style={[styles.betValBadge, { backgroundColor: (bet.valor ?? 0) >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
+                    <Text style={styles.betValText}>{(bet.valor ?? 0) >= 0 ? '+' : ''}{((bet.valor ?? 0) * 100).toFixed(1)}% value</Text>
                   </View>
                   <View style={[styles.riskBadge, {
                     backgroundColor: bet.riesgo === 'bajo' ? '#22c55e30' : bet.riesgo === 'medio' ? colors.accent.gold + '30' : colors.accent.red + '30'
@@ -1980,7 +2623,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 <Text style={[styles.betSel, i === 0 && { fontSize: 15, color: '#fff' }]}>{bet.seleccion}</Text>
                 <View style={styles.betStats}>
                   <View style={styles.betOddsBox}>
-                    <Text style={styles.betOddsVal}>{bet.cuota.toFixed(2)}</Text>
+                    <Text style={styles.betOddsVal}>{(typeof bet.cuota === 'number' ? bet.cuota : 0).toFixed(2)}</Text>
                     <Text style={styles.betOddsLbl}>Cuota</Text>
                   </View>
                   <View style={styles.betProbBox}>
@@ -1988,8 +2631,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                     <Text style={styles.betProbLbl}>Prob. IA</Text>
                   </View>
                   <View style={styles.betValueBox}>
-                    <Text style={[styles.betProbVal, { color: bet.valor >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
-                      {bet.valor >= 0 ? '+' : ''}{(bet.valor * 100).toFixed(0)}%
+                    <Text style={[styles.betProbVal, { color: (bet.valor ?? 0) >= 0.05 ? colors.accent.green : colors.accent.gold }]}>
+                      {(bet.valor ?? 0) >= 0 ? '+' : ''}{((bet.valor ?? 0) * 100).toFixed(0)}%
                     </Text>
                     <Text style={styles.betProbLbl}>Value</Text>
                   </View>
@@ -2047,18 +2690,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           </View>
         )}
 
-        {/* CONCLUSIÓN */}
-        <Section icon="🎯" title="CONCLUSIÓN" delay={880}>
-          <Text style={styles.bodyText}>{analysis.conclusion}</Text>
-          <View style={styles.confBox}>
-            <View style={[styles.confBar, { width: `${analysis.confianza}%` as any }]} />
-            <Text style={styles.confText}>Confianza IA: {analysis.confianza}%</Text>
-          </View>
-        </Section>
-
         <View style={{ height: 40 }} />
       </View>
-    );
+    ); } catch (renderErr: any) {
+      console.error('[WikiBet] AnalysisContent crash caught:', renderErr?.message ?? renderErr);
+      return (
+        <View style={styles.modalScroll}>
+          <View style={{ padding: 30, alignItems: 'center' }}>
+            <Text style={{ color: '#ef4444', fontSize: 15, textAlign: 'center', marginBottom: 8 }}>
+              ⚠️ Error al renderizar el análisis
+            </Text>
+            <Text style={{ color: '#9ca3af', fontSize: 11, textAlign: 'center' }}>
+              {renderErr?.message ?? 'Error desconocido'}
+            </Text>
+          </View>
+        </View>
+      );
+    }
   };
 
   const groups = groupedMatches();
@@ -2240,17 +2888,25 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                   liveMinute={(() => {
                     const ld = liveScoresMap[selectedMatch.id];
                     const rs = ld?.rawStatus;
+                    // HT always shows 45'
+                    if (rs === 'HT') return 45;
                     const storedTs = liveMinuteTimestamps.current[selectedMatch.id];
                     if (storedTs) {
-                      const drift = Math.floor((Date.now() - storedTs.receivedAt) / 60000);
-                      const est = storedTs.minute + drift;
-                      if (rs === 'HT') return 45;
-                      if (rs === '1H') return Math.min(45, est);
-                      if (rs === '2H') return Math.min(97, est);
-                      return Math.min(97, est);
+                      const driftMin = Math.floor((Date.now() - storedTs.receivedAt) / 60000);
+                      if (rs === '1H') return Math.min(45, storedTs.minute + driftMin);
+                      if (rs === '2H') {
+                        // If stored minute is still from 1H (≤45), halftime break
+                        // already elapsed — compute 2H start as 45 + drift minus 15min break
+                        if (storedTs.minute <= 45) {
+                          return Math.min(97, 45 + Math.max(0, driftMin - 15));
+                        }
+                        // Stored minute is already in 2H territory — just add drift
+                        return Math.min(97, storedTs.minute + driftMin);
+                      }
+                      return Math.min(97, storedTs.minute + driftMin);
                     }
+                    // No stored timestamp — fall back to elapsed time from kick-off
                     const elapsed = Math.floor((Date.now() - new Date(selectedMatch.date).getTime()) / 60000);
-                    if (rs === 'HT') return 45;
                     if (rs === '1H') return Math.min(45, Math.max(1, elapsed));
                     if (rs === '2H') return Math.min(97, 45 + Math.max(0, elapsed - 62));
                     // Live but no rawStatus — use elapsed
@@ -2273,7 +2929,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
               <View style={{ paddingVertical: 60, alignItems: 'center', gap: 12 }}>
                 <ActivityIndicator size="large" color={colors.accent.green} />
                 <Text style={styles.loadingLabel}>🤖 Analizando con IA...</Text>
-                <Text style={styles.loadingSubLabel}>Generando pronósticos detallados...</Text>
+                <Text style={styles.loadingSubLabel}>Generando pronósticos detallados · ~15s</Text>
               </View>
             ) : analysisError ? (
               <View style={{ paddingVertical: 40, alignItems: 'center' }}>
@@ -2281,7 +2937,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
                 <Text style={styles.errorSub}>Verifica tu API key o conexión</Text>
               </View>
             ) : analysis ? (
-              <AnalysisContent />
+              <AnalysisErrorBoundary key={analysis.resumenEjecutivo ?? 'analysis'}>
+                <AnalysisContent />
+              </AnalysisErrorBoundary>
             ) : null}
           </ScrollView>
         </SafeAreaView>
@@ -2435,7 +3093,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border.subtle, paddingBottom: 4,
   },
   bodyText: { fontSize: 12, color: colors.text.primary, lineHeight: 18 },
-  subSectionTitle: { fontSize: 10, fontWeight: '700', color: colors.text.muted, marginTop: 10, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  subSectionTitle: { fontSize: 9, fontWeight: '800', color: '#6A7A8E', marginTop: 10, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#ffffff08', borderRadius: 6, alignSelf: 'flex-start' },
+  tableGroupChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#ffffff0a', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginTop: 10, marginBottom: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#ffffff12' },
+  tableGroupChipText: { fontSize: 9, fontWeight: '800', color: '#6A7A8E', textTransform: 'uppercase', letterSpacing: 0.9 },
+  tableGroupChipDot: { width: 5, height: 5, borderRadius: 3 },
   row2: { flexDirection: 'row', gap: 8 },
   row3: { flexDirection: 'row', gap: 8 },
   teamBox: {
@@ -2461,15 +3122,16 @@ const styles = StyleSheet.create({
   probBarText: { display: 'none' },
   // Goals/stats table
   tableHeader: {
-    flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 5,
-    backgroundColor: colors.bg.card, borderRadius: 6, marginBottom: 2,
+    flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 7,
+    backgroundColor: '#161D28', borderRadius: 8, marginBottom: 2,
+    borderWidth: 1, borderColor: '#1C2535',
   },
-  tableHeadCell: { width: 52, fontSize: 9, fontWeight: '700', color: colors.text.muted, textAlign: 'center' },
-  lineRow: { flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 6, alignItems: 'center', borderRadius: 4 },
-  lineRowHighlight: { backgroundColor: colors.bg.card },
+  tableHeadCell: { width: 50, fontSize: 9, fontWeight: '700', color: '#4A5A6E', textAlign: 'center' },
+  lineRow: { flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 5, alignItems: 'center', borderRadius: 4 },
+  lineRowHighlight: { backgroundColor: '#ffffff04' },
   lineLabelText: { flex: 1.4, fontSize: 11, fontWeight: '600', color: colors.text.primary },
-  lineVal: { width: 52, fontSize: 12, fontWeight: '700', color: colors.text.primary, textAlign: 'center' },
-  lineValTotal: { width: 52, fontSize: 12, fontWeight: '800', color: colors.accent.gold, textAlign: 'center' },
+  lineVal: { width: 50, fontSize: 11, fontWeight: '600', color: colors.text.primary, textAlign: 'center' },
+  lineValTotal: { width: 50, fontSize: 13, fontWeight: '800', color: colors.accent.gold, textAlign: 'center' },
   // Big stat cells
   bigStatCell: {
     flex: 1, backgroundColor: colors.bg.card, borderRadius: 8, padding: 10,

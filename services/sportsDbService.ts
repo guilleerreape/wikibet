@@ -252,8 +252,12 @@ export const sportsDbService = {
       const typeStr = (t.strTimeline ?? '').toLowerCase();
       const detail = (t.strTimelineDetail ?? '').toLowerCase();
       let type: SDBMatchEvent['type'];
-      if (typeStr === 'goal') {
-        type = detail.includes('penalty') ? 'penalty' : detail.includes('own') ? 'owngoal' : 'goal';
+      // TheSportsDB can return many variants: "Goal", "Penalty Goal", "penalty", "Own Goal", etc.
+      const isGoalEvent = typeStr.includes('goal') || typeStr === 'penalty';
+      const isPenaltyGoal = typeStr.includes('penalty') || detail.includes('penalty');
+      const isOwnGoal = typeStr.includes('own') || detail.includes('own');
+      if (isGoalEvent) {
+        type = isOwnGoal ? 'owngoal' : isPenaltyGoal ? 'penalty' : 'goal';
       } else if (typeStr === 'card') {
         type = detail.includes('red') ? 'red' : 'yellow';
       } else if (typeStr === 'subst') {

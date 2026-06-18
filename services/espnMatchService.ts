@@ -476,6 +476,52 @@ export async function getMatchDetails(leagueId: string, matchId: string): Promis
   }
 }
 
+// Calcula clasificación del Mundial dinámicamente de los partidos jugados en STATIC
+function computeWCStandings(): StandingEntry[] {
+  // Inicializar todos los equipos desde WC_GROUPS_STATIC (para tener el group label)
+  const teamMap: Record<string, StandingEntry & { group: string }> = {};
+  for (const [group, teams] of Object.entries(WC_GROUPS_STATIC)) {
+    for (const t of teams) {
+      teamMap[t.team] = { ...t, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, points: 0, group };
+    }
+  }
+
+  // Función de búsqueda fuzzy para emparejar nombre de equipo
+  const findTeam = (name: string) => {
+    const n = name.toLowerCase();
+    return Object.values(teamMap).find(t => {
+      const tn = t.team.toLowerCase();
+      return tn === n || n.includes(tn) || tn.includes(n);
+    });
+  };
+
+  // Procesar todos los partidos terminados del Mundial
+  for (const match of (STATIC['FIFA.WORLD'] || [])) {
+    if (match.status !== 'finished' || match.homeScore == null || match.awayScore == null) continue;
+    const home = findTeam(match.homeTeam);
+    const away = findTeam(match.awayTeam);
+    if (!home || !away) continue;
+
+    const hs = match.homeScore;
+    const as_ = match.awayScore;
+
+    home.played++; home.gf += hs; home.ga += as_;
+    away.played++; away.gf += as_; away.ga += hs;
+
+    if (hs > as_) {
+      home.won++; home.points += 3; away.lost++;
+    } else if (hs === as_) {
+      home.drawn++; home.points += 1; away.drawn++; away.points += 1;
+    } else {
+      away.won++; away.points += 3; home.lost++;
+    }
+    home.gd = home.gf - home.ga;
+    away.gd = away.gf - away.ga;
+  }
+
+  return Object.values(teamMap);
+}
+
 export const espnMatchService = {
   async getMatches(competitionId: string): Promise<CompetitionMatch[]> {
     const comp = COMPETITIONS.find(c => c.id === competitionId);
@@ -532,10 +578,9 @@ export const espnMatchService = {
   },
 
   async getStandings(competitionId: string): Promise<StandingEntry[]> {
-    // Para el Mundial siempre devolver datos estáticos con group labels
-    // (ESPN standings API para WC no siempre devuelve los 12 grupos correctamente)
+    // Para el Mundial calcular clasificaciones dinámicamente de los partidos jugados
     if (competitionId === 'FIFA.WORLD') {
-      return STANDINGS_STATIC['FIFA.WORLD'];
+      return computeWCStandings();
     }
 
     try {

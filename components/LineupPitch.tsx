@@ -27,21 +27,45 @@ function parseFormation(f: string): number[] {
   return f.split('-').map(Number);
 }
 
-function PlayerDot({ player, color }: { player: Player; color: string }) {
+function PlayerDot({ player, color, pitchWidth, rowCount }: { player: Player; color: string; pitchWidth: number; rowCount: number }) {
   // Show dorsal if available, otherwise first 2 chars of last name
   const label = player.number != null && player.number !== 0
     ? String(player.number)
     : player.name.split(' ').pop()?.slice(0, 2) ?? player.name.slice(0, 2);
-  // Display: last name (or whole name if one word), truncated to 8 chars
-  const displayName = player.name.split(' ').pop()?.slice(0, 8) ?? player.name.slice(0, 8);
+  // Display: last name truncated
+  const displayName = player.name.split(' ').pop()?.slice(0, 7) ?? player.name.slice(0, 7);
+
+  // Aggressive responsive sizing — key metric is pitchWidth per player slot
+  const slotWidth = Math.floor(pitchWidth / (rowCount + 1));
+  const isTiny = pitchWidth < 200;   // mobile stacked layout
+  const isSmall = pitchWidth < 270;
+
+  const wrapWidth = isTiny
+    ? Math.max(20, Math.min(32, slotWidth))
+    : Math.min(46, slotWidth);
+
+  const circleSize = isTiny
+    ? Math.max(16, Math.min(22, Math.floor(wrapWidth * 0.78)))
+    : Math.min(26, Math.floor(wrapWidth * 0.85));
+
+  const numberFontSize = isTiny ? 6 : isSmall ? 7 : 8;
+  const nameFontSize   = isTiny ? 5 : isSmall ? 6 : 7;
+  const showName = pitchWidth >= 175; // hide names on extremely tiny pitches
+
   return (
-    <View style={styles.playerWrap}>
-      <View style={[styles.playerCircle, { backgroundColor: color }]}>
-        <Text style={styles.playerNumber}>{label}</Text>
+    <View style={[styles.playerWrap, { width: wrapWidth }]}>
+      <View style={[styles.playerCircle, {
+        backgroundColor: color,
+        width: circleSize, height: circleSize,
+        borderRadius: Math.floor(circleSize / 2),
+      }]}>
+        <Text style={[styles.playerNumber, { fontSize: numberFontSize }]}>{label}</Text>
       </View>
-      <Text style={styles.playerName} numberOfLines={1}>
-        {displayName}
-      </Text>
+      {showName && (
+        <Text style={[styles.playerName, { fontSize: nameFontSize, maxWidth: wrapWidth }]} numberOfLines={1}>
+          {displayName}
+        </Text>
+      )}
     </View>
   );
 }
@@ -137,11 +161,11 @@ export default function LineupPitch({
             <View style={styles.playersContainer}>
               {/* Away team (top half) — red */}
               <View style={styles.teamHalf}>
-                <Text style={[styles.teamLabel, { color: '#f87171' }]} numberOfLines={1}>{awayTeam}</Text>
+                <Text style={[styles.teamLabel, { color: '#f87171', fontSize: w < 200 ? 7 : 10 }]} numberOfLines={1}>{awayTeam}</Text>
                 {awayRowsDisplay.map((row, ri) => (
                   <View key={`away-row-${ri}`} style={styles.playerRow}>
                     {row.map((p, pi) => (
-                      <PlayerDot key={`away-${ri}-${pi}`} player={p} color="#dc2626" />
+                      <PlayerDot key={`away-${ri}-${pi}`} player={p} color="#dc2626" pitchWidth={w} rowCount={row.length} />
                     ))}
                   </View>
                 ))}
@@ -149,11 +173,11 @@ export default function LineupPitch({
 
               {/* Home team (bottom half) — blue */}
               <View style={[styles.teamHalf, { flexDirection: 'column-reverse' }]}>
-                <Text style={[styles.teamLabel, { color: '#60a5fa' }]} numberOfLines={1}>{homeTeam}</Text>
+                <Text style={[styles.teamLabel, { color: '#60a5fa', fontSize: w < 200 ? 7 : 10 }]} numberOfLines={1}>{homeTeam}</Text>
                 {homeRowsDisplay.map((row, ri) => (
                   <View key={`home-row-${ri}`} style={styles.playerRow}>
                     {row.map((p, pi) => (
-                      <PlayerDot key={`home-${ri}-${pi}`} player={p} color="#2563eb" />
+                      <PlayerDot key={`home-${ri}-${pi}`} player={p} color="#2563eb" pitchWidth={w} rowCount={row.length} />
                     ))}
                   </View>
                 ))}
@@ -254,9 +278,10 @@ const styles = StyleSheet.create({
   teamHalf: {
     flex: 1,
     flexDirection: 'column',
-    justifyContent: 'space-around',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    justifyContent: 'space-evenly',
+    paddingHorizontal: 3,
+    paddingVertical: 2,
+    overflow: 'hidden',  // never let a row bleed past its half
   },
   playerRow: {
     flexDirection: 'row',
@@ -265,12 +290,8 @@ const styles = StyleSheet.create({
   },
   playerWrap: {
     alignItems: 'center',
-    width: 46,
   },
   playerCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1.5,
@@ -282,15 +303,15 @@ const styles = StyleSheet.create({
   },
   playerNumber: {
     color: '#fff',
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '900',
   },
   playerName: {
     color: 'rgba(255,255,255,0.9)',
-    fontSize: 8,
+    fontSize: 7,
     marginTop: 2,
     textAlign: 'center',
-    maxWidth: 46,
+    maxWidth: 38,
     fontWeight: '600',
   },
   teamLabel: {

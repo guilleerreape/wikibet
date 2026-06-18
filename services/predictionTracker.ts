@@ -120,6 +120,45 @@ export function buildConfidentPredictions(predicciones: any): PredItem[] {
     preds.push({ market: 'over3_5', label: 'Más de 3.5 goles', emoji: '🚀', prob: Math.round(over35raw) });
   }
 
+  // ── Corners ────────────────────────────────────────────────────────────────
+  const corners = predicciones?.corners ?? {};
+  if ((corners.over8_5 ?? 0) >= 60) {
+    preds.push({ market: 'corners_over8_5', label: 'Más de 8.5 córners', emoji: '🚩', prob: Math.round(corners.over8_5) });
+  } else if ((corners.under8_5 ?? 0) >= 60) {
+    preds.push({ market: 'corners_under8_5', label: 'Menos de 8.5 córners', emoji: '🚩', prob: Math.round(corners.under8_5) });
+  }
+  if ((corners.over9_5 ?? 0) >= 55) {
+    preds.push({ market: 'corners_over9_5', label: 'Más de 9.5 córners', emoji: '🚩', prob: Math.round(corners.over9_5) });
+  }
+
+  // ── Cards ──────────────────────────────────────────────────────────────────
+  const tarjetas = predicciones?.tarjetas ?? {};
+  if ((tarjetas.over2_5 ?? 0) >= 60) {
+    preds.push({ market: 'cards_over2_5', label: 'Más de 2.5 tarjetas', emoji: '🟨', prob: Math.round(tarjetas.over2_5) });
+  }
+  if ((tarjetas.over3_5 ?? 0) >= 55) {
+    preds.push({ market: 'cards_over3_5', label: 'Más de 3.5 tarjetas', emoji: '🟨', prob: Math.round(tarjetas.over3_5) });
+  } else if ((tarjetas.under3_5 ?? 0) >= 60) {
+    preds.push({ market: 'cards_under3_5', label: 'Menos de 3.5 tarjetas', emoji: '🟨', prob: Math.round(tarjetas.under3_5) });
+  }
+
+  // ── First-half scoring ─────────────────────────────────────────────────────
+  const mpt = predicciones?.marcadorPorTiempo ?? {};
+  const localH1 = mpt.equipoLocal_1H_marcar ?? 0;
+  const awayH1  = mpt.equipoVisitante_1H_marcar ?? 0;
+  if (localH1 >= 55) {
+    preds.push({ market: 'local_score_1H', label: 'Local marca en 1ª parte', emoji: '⏱️', prob: Math.round(localH1) });
+  }
+  if (awayH1 >= 50) {
+    preds.push({ market: 'away_score_1H', label: 'Visitante marca en 1ª parte', emoji: '⏱️', prob: Math.round(awayH1) });
+  }
+
+  // ── Fouls over/under ───────────────────────────────────────────────────────
+  const faltas = predicciones?.faltas ?? {};
+  if ((faltas.over20_5 ?? 0) >= 62) {
+    preds.push({ market: 'fouls_over20_5', label: 'Más de 20.5 faltas', emoji: '⚠️', prob: Math.round(faltas.over20_5) });
+  }
+
   return preds;
 }
 
@@ -140,6 +179,17 @@ export function verifyPredictions(preds: PredItem[], hs: number, as_: number): P
       case 'under1_5':hit = total < 2; break;
       case 'btts':    hit = hs > 0 && as_ > 0; break;
       case 'btts_no': hit = !(hs > 0 && as_ > 0); break;
+      // New markets — these can't be verified from just goals, mark as pending
+      case 'corners_over8_5':
+      case 'corners_under8_5':
+      case 'corners_over9_5':
+      case 'cards_over2_5':
+      case 'cards_over3_5':
+      case 'cards_under3_5':
+      case 'local_score_1H':
+      case 'away_score_1H':
+      case 'fouls_over20_5':
+        hit = false; break; // cannot verify without stats data
       default:        hit = false;
     }
     return { ...p, hit };

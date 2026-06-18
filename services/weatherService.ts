@@ -20,13 +20,35 @@ const STADIUM_CITIES: Record<string, string> = {
 
 export async function getVenueWeather(venue: string): Promise<WeatherData | null> {
   let city = '';
-  for (const [keyword, c] of Object.entries(STADIUM_CITIES)) {
-    if (venue.includes(keyword)) { city = c; break; }
+
+  // 1. Prefer the city embedded after a comma (e.g. "Rose Bowl, Los Ángeles" → "Los Ángeles")
+  const commaParts = venue.split(',');
+  if (commaParts.length > 1) {
+    city = commaParts[commaParts.length - 1].trim();
+    // Skip abbreviations like "NJ", "TX" — they don't work well with weather APIs
+    if (city.length <= 3) {
+      // Expand common US state abbreviations
+      const STATE_CITIES: Record<string, string> = {
+        NJ: 'New Jersey', TX: 'Dallas', CA: 'Los Angeles', NY: 'New York',
+        WA: 'Seattle', FL: 'Miami', GA: 'Atlanta', MO: 'Kansas City',
+        MA: 'Boston', PA: 'Philadelphia', IL: 'Chicago', OH: 'Cleveland',
+      };
+      city = STATE_CITIES[city.toUpperCase()] ?? city;
+    }
   }
+
+  // 2. If no city from comma, try STADIUM_CITIES dict
   if (!city) {
-    const parts = venue.split(',');
-    city = parts.length > 1 ? parts[parts.length - 1].trim() : venue.split(' ')[0];
+    for (const [keyword, c] of Object.entries(STADIUM_CITIES)) {
+      if (venue.includes(keyword)) { city = c; break; }
+    }
   }
+
+  // 3. Last resort: first meaningful word
+  if (!city) {
+    city = venue.split(' ')[0];
+  }
+
   if (!city || city.length < 2) return null;
 
   try {
