@@ -167,7 +167,7 @@ export function verifyPredictions(preds: PredItem[], hs: number, as_: number): P
   const total     = hs + as_;
   const actual1x2 = outcomeFromScore(hs, as_);
   return preds.map(p => {
-    let hit: boolean;
+    let hit: boolean | undefined;
     switch (p.market) {
       case '1x2':     hit = p.value === actual1x2; break;
       case 'over0_5': hit = total > 0; break;
@@ -179,7 +179,9 @@ export function verifyPredictions(preds: PredItem[], hs: number, as_: number): P
       case 'under1_5':hit = total < 2; break;
       case 'btts':    hit = hs > 0 && as_ > 0; break;
       case 'btts_no': hit = !(hs > 0 && as_ > 0); break;
-      // New markets — these can't be verified from just goals, mark as pending
+      // Markets that require real stats data (corners, cards, fouls, 1H-specific):
+      // These CANNOT be verified from just the final score.
+      // Return hit=undefined so they are EXCLUDED from accuracy % computation.
       case 'corners_over8_5':
       case 'corners_under8_5':
       case 'corners_over9_5':
@@ -189,7 +191,7 @@ export function verifyPredictions(preds: PredItem[], hs: number, as_: number): P
       case 'local_score_1H':
       case 'away_score_1H':
       case 'fouls_over20_5':
-        hit = false; break; // cannot verify without stats data
+        return { ...p, hit: undefined }; // skip in accuracy until real stats available
       default:        hit = false;
     }
     return { ...p, hit };
@@ -405,6 +407,7 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
         // ── New system: read from predictions_json ──
         for (const p of preds) {
           if (p.hit === undefined || p.hit === null) continue;
+          if (UNVERIFIABLE_MARKETS.has(p.market)) continue; // skip unverifiable
           const label =
             p.market === '1x2' ? 'Resultado 1X2' :
             p.label;
@@ -473,6 +476,14 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
 }
 
 // ─── Quick composite % for button badge ──────────────────────────────────────
+// Markets that require live stats (corners, cards, fouls) — excluded from accuracy %
+// until real-time stats verification is available from ESPN API
+const UNVERIFIABLE_MARKETS = new Set([
+  'corners_over8_5', 'corners_under8_5', 'corners_over9_5',
+  'cards_over2_5', 'cards_over3_5', 'cards_under3_5',
+  'local_score_1H', 'away_score_1H', 'fouls_over20_5',
+]);
+
 export async function getQuickStats(): Promise<{ pct: number; total: number } | null> {
   try {
     const { data } = await supabase
@@ -487,7 +498,9 @@ export async function getQuickStats(): Promise<{ pct: number; total: number } | 
       const preds: PredItem[] = (r as any).predictions_json ?? [];
       if (preds.length > 0) {
         for (const p of preds) {
+          // Skip unverifiable markets AND any that have no hit value
           if (p.hit === undefined || p.hit === null) continue;
+          if (UNVERIFIABLE_MARKETS.has(p.market)) continue;
           total++;
           if (p.hit === true) correct++;
         }

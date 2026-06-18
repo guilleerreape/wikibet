@@ -130,20 +130,23 @@ export default function MatchEventsPanel({
   awayScore,
   status,
   events,
-  estimatedEvents = [],
+  estimatedEvents: _estimatedEvents = [],  // received but intentionally ignored — events panel shows REAL events only
   matchDate,
   liveMinute,
   rawStatus,
 }: MatchEventsPanelProps) {
-  const displayEvents = events.length > 0 ? events : estimatedEvents;
-  const isEstimated = events.length === 0 && estimatedEvents.length > 0;
+  // ── REAL events only — never show AI-estimated/predicted events ──────────────
+  // The events panel is strictly for events that actually happened in real time.
+  // Estimated events (AI predictions) belong in the analysis section, not here.
+  const displayEvents = events;
+  const isEstimated = false;  // always false — we never show estimated
 
   // Use real API rawStatus for halftime — never rely on computed elapsed time
   const isHalftime = status === 'live' && rawStatus === 'HT';
 
-  // For upcoming matches with NO real events yet: show UpcomingReadyPanel + estimated events
-  // If real events exist (match already kicked off despite upcoming status), fall through to normal view
-  if (status === 'upcoming' && events.length === 0) {
+  // For upcoming matches: show the "ready" panel (waiting for kick-off)
+  // For live matches with no events yet: fall through and show empty live panel
+  if (status === 'upcoming') {
     return (
       <View style={[styles.panel, { borderColor: '#1f2937' }]}>
         <UpcomingReadyPanel homeTeam={homeTeam} awayTeam={awayTeam} matchDate={matchDate} />
@@ -179,7 +182,7 @@ export default function MatchEventsPanel({
 
       {/* Events label */}
       <Text style={styles.eventsLabel}>
-        {isEstimated ? '🤖 ESTIMADO' : status === 'finished' ? '📋 EVENTOS' : '⚡ LIVE'}
+        {status === 'finished' ? '📋 EVENTOS' : '⚡ LIVE'}
       </Text>
 
       {/* Events list */}

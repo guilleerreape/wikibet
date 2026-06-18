@@ -384,6 +384,64 @@ function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysi
 }
 
 // ─── Live analysis banner ─────────────────────────────────────────────────────
+/** Generates a specific, non-generic live context explanation based on the current match state */
+function buildLiveContextText(
+  homeTeam: string, awayTeam: string,
+  predictedOutcome: string, currentOutcome: string,
+  onTrack: boolean,
+  hg: number, ag: number,
+  homeWinProb: number, drawProb: number, awayWinProb: number,
+  pred: any,
+): string {
+  const total = hg + ag;
+  const expectedGoals = pred?.golesEsperados;
+  const xgLocal    = expectedGoals?.local    ?? (homeWinProb / 50);
+  const xgVisitante = expectedGoals?.visitante ?? (awayWinProb / 50);
+  const over25prob = pred?.goles?.over2_5?.total ?? pred?.mercados?.over2_5 ?? 50;
+  const bttsProb   = pred?.mercados?.btts_si ?? pred?.ambosMarcaran?.probabilidad ?? 50;
+
+  if (total === 0) {
+    if (onTrack) {
+      if (hg === 0 && ag === 0) {
+        const fav = homeWinProb > awayWinProb ? homeTeam : awayTeam;
+        return `Partido sin goles de momento. La IA mantiene su pronóstico de ${predictedOutcome} (${Math.max(homeWinProb, drawProb, awayWinProb)}% prob). ${fav} debe encontrar espacios — xG previsto ${xgLocal.toFixed(1)}-${xgVisitante.toFixed(1)}.`;
+      }
+    } else {
+      return `0-0 cuando la IA esperaba ${predictedOutcome}. La probabilidad de victoria sigue siendo ${homeWinProb}%/${drawProb}%/${awayWinProb}% pero el ritmo del partido aún no refleja esos xG (${xgLocal.toFixed(1)}-${xgVisitante.toFixed(1)}).`;
+    }
+  }
+
+  if (onTrack) {
+    if (hg > ag) {
+      const gap = hg - ag;
+      const comfort = gap >= 2 ? 'cómodamente' : 'por la mínima';
+      return `${homeTeam} gana ${hg}-${ag} ${comfort}. La IA pronosticó victoria local (${homeWinProb}% de prob) y el marcador lo confirma. ${over25prob >= 60 ? `El Over 2.5 goles (${over25prob}% IA) sigue en juego.` : `Partido ajustado — xG local ${xgLocal.toFixed(1)} respalda el dominio.`}`;
+    }
+    if (ag > hg) {
+      return `${awayTeam} sorprende ganando ${hg}-${ag}. La IA lo previó (${awayWinProb}% victoria visitante) basándose en xG ${xgVisitante.toFixed(1)} para el visitante. ${bttsProb >= 60 ? `BTTS todavía posible — ${homeTeam} con ${xgLocal.toFixed(1)} xG puede responder.` : `Resultado en línea con el análisis previo.`}`;
+    }
+    if (hg === ag && hg > 0) {
+      return `Empate ${hg}-${ag} tal como anticipó la IA (${drawProb}% prob empate). Con ambos equipos marcando se cumple el BTTS (${bttsProb}% prob). La clave ahora: quién toma la iniciativa en la segunda mitad.`;
+    }
+  } else {
+    // Not on track
+    if (hg > ag && predictedOutcome !== homeTeam) {
+      return `⚠️ ${homeTeam} lidera ${hg}-${ag} pero la IA favoreció a ${predictedOutcome}. Ajustando: el local genera más xG de lo previsto. Probabilidad actual de remontada por ${predictedOutcome}: baja si el marcador se mantiene.`;
+    }
+    if (ag > hg && predictedOutcome !== awayTeam) {
+      return `⚠️ ${awayTeam} va ganando ${hg}-${ag} contra el pronóstico de ${predictedOutcome}. La IA asignó solo ${awayWinProb}% al resultado visitante. Situación crítica para el pronóstico — ${homeTeam} necesita reaccionar.`;
+    }
+    if (hg === ag && predictedOutcome !== 'Empate') {
+      const favTeam = homeWinProb > awayWinProb ? homeTeam : awayTeam;
+      return `⚠️ Empate ${hg}-${ag} cuando la IA esperaba victoria de ${predictedOutcome}. ${favTeam} dominó en xG (${xgLocal.toFixed(1)}-${xgVisitante.toFixed(1)}) pero no convierte. El pronóstico aún puede cumplirse si hay gol en la segunda parte.`;
+    }
+    // Generic fallback (shouldn't normally reach here)
+    return `⚠️ Marcador ${hg}-${ag} diverge del pronóstico inicial de ${predictedOutcome}. La IA recalibra basándose en la evolución del partido.`;
+  }
+
+  return `Pronóstico ${predictedOutcome} (${homeWinProb}%/${drawProb}%/${awayWinProb}%). Marcador ${hg}-${ag} — analizando evolución del partido en tiempo real.`;
+}
+
 function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
   const hg = match.homeScore ?? 0;
   const ag = match.awayScore ?? 0;
@@ -397,6 +455,13 @@ function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: Ad
     : drawProb >= homeWinProb && drawProb >= awayWinProb ? 'Empate' : match.awayTeam;
   const currentOutcome = hg > ag ? match.homeTeam : hg === ag ? 'Empate' : match.awayTeam;
   const onTrack = predictedOutcome === currentOutcome;
+
+  const liveContextText = buildLiveContextText(
+    match.homeTeam, match.awayTeam,
+    predictedOutcome, currentOutcome,
+    onTrack, hg, ag,
+    homeWinProb, drawProb, awayWinProb, pred,
+  );
 
   const markets = [
     { label: 'Over 0.5 goles', done: total > 0, on: total > 0, off: false },
@@ -418,13 +483,18 @@ function LiveBanner({ match, analysis }: { match: CompetitionMatch; analysis: Ad
         <Text style={styles.liveBannerScore}>{hg} - {ag}</Text>
         <Text style={styles.liveBannerTitle}>ANÁLISIS IA EN DIRECTO</Text>
       </View>
-      <Text style={styles.liveBannerSub}>
-        Pronóstico IA: <Text style={{ fontWeight: 'bold', color: colors.accent.gold }}>{predictedOutcome}</Text>
-        {'  '}→{'  '}
-        <Text style={{ fontWeight: 'bold', color: onTrack ? '#22c55e' : '#ef4444' }}>
-          {onTrack ? '✅ VÁ BIEN' : '⚠️ CAMBIANDO'}
+      {/* Status chip */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <Text style={styles.liveBannerSub}>
+          Pronóstico IA: <Text style={{ fontWeight: 'bold', color: colors.accent.gold }}>{predictedOutcome}</Text>
+          {'  '}→{'  '}
+          <Text style={{ fontWeight: 'bold', color: onTrack ? '#22c55e' : '#ef4444' }}>
+            {onTrack ? '✅ VÁ BIEN' : '⚠️ CAMBIANDO'}
+          </Text>
         </Text>
-      </Text>
+      </View>
+      {/* Specific live context explanation */}
+      <Text style={styles.liveContextText}>{liveContextText}</Text>
       <View style={styles.liveMarkets}>
         {markets.map(m => (
           <View key={m.label} style={[styles.liveMarketChip,
@@ -3351,7 +3421,12 @@ const styles = StyleSheet.create({
   liveBannerDot: { fontSize: 11, fontWeight: '800', color: colors.accent.red },
   liveBannerScore: { fontSize: 18, fontWeight: 'bold', color: colors.text.primary, paddingHorizontal: 8 },
   liveBannerTitle: { fontSize: 11, fontWeight: '800', color: colors.accent.red, textTransform: 'uppercase', letterSpacing: 0.5 },
-  liveBannerSub: { fontSize: 12, color: colors.text.primary, marginBottom: 10 },
+  liveBannerSub: { fontSize: 12, color: colors.text.primary, marginBottom: 4 },
+  liveContextText: {
+    fontSize: 11, color: '#9ca3af', lineHeight: 16, marginBottom: 10,
+    fontStyle: 'italic', borderLeftWidth: 2, borderLeftColor: '#ef444460',
+    paddingLeft: 8, marginTop: 2,
+  },
   liveMarkets: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   liveMarketChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
   liveMarketHit: { backgroundColor: '#22c55e20', borderColor: '#22c55e50' },

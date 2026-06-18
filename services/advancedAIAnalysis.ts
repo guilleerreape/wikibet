@@ -508,11 +508,19 @@ REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=$
 
 ⚠️ equipoLocal y equipoVisitante: MÍNIMO 4 fortalezas, 3 debilidades ESPECÍFICAS (no genéricas). Forma real últimos 5 partidos con resultados específicos si los conoces.
 
-⚠️ tactico.enfoque — DIFERENTE a conclusion:
-   → tactico.enfoque: explica el duelo táctico concreto entre los dos estilos (cómo se enfrentan sus sistemas, qué zonas serán clave, qué ajustes tácticos probables).
-   → conclusion: pronóstico final con argumentos cuantitativos (xG, % probabilidades del JSON, factores de valor).
-   → PROHIBIDO repetir las mismas frases en ambos campos. Son COMPLETAMENTE DISTINTOS.
-   → MÍNIMO 4 frases en cada uno.
+⚠️ tactico.enfoque — DIFERENTE a conclusion. ESPECÍFICO, NO GENÉRICO:
+   → Describe exactamente cómo chocan los sistemas de ${homeTeam} vs ${awayTeam}: ¿quién presiona alto? ¿qué lado del campo será más explotado? ¿qué jugador será el pivote clave? ¿cómo neutraliza ${awayTeam} el ataque de ${homeTeam}?
+   → PROHIBIDO: "partido intenso", "estilos contrastados", "ambos equipos buscarán dominar", "la clave estará en el centro del campo". Estas frases no significan nada.
+   → OBLIGATORIO incluir: el sistema defensivo específico de cada equipo con línea de bloque, el jugador mediocampista que controla el ritmo, y el flanco más débil de cada defensa.
+   → MÍNIMO 4 frases originales y detalladas sobre ${homeTeam} vs ${awayTeam} específicamente.
+
+⚠️ conclusion — PRONÓSTICO DEFINITIVO ÚNICO. NO GENÉRICO:
+   → OBLIGATORIO citar los xG exactos calculados (ej: "con xG ${homeTeam}=1.8 y xG ${awayTeam}=1.1...").
+   → OBLIGATORIO citar los porcentajes del JSON (ej: "${homeTeam} 58%, empate 22%, ${awayTeam} 20%").
+   → Nombra el JUGADOR DIFERENCIAL que puede decidir el partido y por qué.
+   → Menciona la apuesta con mejor valor según tu análisis con su cuota estimada.
+   → PROHIBIDO: "partido equilibrado", "ningún favorito claro", "difícil de predecir", "ambos equipos en buena forma". Estas frases son inútiles. Si tienes datos → úsalos.
+   → MÍNIMO 4 frases específicas. La última debe ser: "Apuesta recomendada: [selección concreta] a cuota [X.XX], valor positivo del [Y]%."
 
 ⚠️ apuestasRecomendadas — VARÍA SEGÚN EL PARTIDO:
    → Las apuestas deben derivarse DIRECTAMENTE de tus probabilidades calculadas para este partido.
@@ -699,11 +707,11 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     }
   },
   "tactico": {
-    "sistemaLocal": "formación + estilo",
-    "sistemaVisitante": "formación + estilo",
-    "enfoque": "descripción táctica 2-3 frases específica",
-    "ventajaTactica": "quién tiene ventaja táctica y por qué",
-    "clavesDelPartido": ["clave táctica real 1", "clave 2", "clave 3"]
+    "sistemaLocal": "formación + estilo defensivo específico (ej: '4-3-3 presión alta, línea defensiva en 40m')",
+    "sistemaVisitante": "formación + cómo atacan y defienden específicamente (ej: '4-2-3-1 bloque medio, transiciones rápidas')",
+    "enfoque": "OBLIGATORIO 4+ frases completamente originales para ${homeTeam} vs ${awayTeam}: describe el duelo táctico real (zonas de presión, jugadores pivote, flancos explotados). PROHIBIDO frases genéricas. EJEMPLO BUENO: '${homeTeam} presionará con 4-3-3 en el mediocampo alto, forzando errores en la salida de balón de ${awayTeam}. El flanco derecho de ${awayTeam} será la zona clave, donde [jugador] deberá superar a [jugador rival]. [Jugador mediocampista] será el eje de todo el juego de posesión.'",
+    "ventajaTactica": "ventaja táctica específica con datos: quién gana y por qué, con jugador nombrado",
+    "clavesDelPartido": ["clave táctica real basada en datos de ${homeTeam}", "clave táctica de ${awayTeam} específica", "factor diferencial que no aparece en otros partidos"]
   },
   "factoresExternos": {
     "clima": "condiciones y efecto en el juego",
@@ -725,7 +733,7 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     {"mercado": "Tiros a puerta", "seleccion": "Over/Under X.5 tiros a puerta total", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "basado en xG y histórico de tiros"},
     {"mercado": "Faltas", "seleccion": "Over/Under X.5 faltas totales", "cuota": 0.0, "probabilidad": 0, "valor": 0.00, "riesgo": "bajo", "razonamiento": "solo si hay alta confianza en el dato"}
   ],
-  "conclusion": "conclusión 3-4 frases con pronóstico definitivo, resultado más probable y apuesta principal recomendada",
+  "conclusion": "OBLIGATORIO 4+ frases 100% únicas para ${homeTeam} vs ${awayTeam}. DEBE incluir: (1) los xG calculados exactos de ambos equipos, (2) los porcentajes exactos del JSON (victoriaLocal%, empate%, victoriaVisitante%), (3) el jugador diferencial nombrado y su impacto, (4) la apuesta con mejor valor y su cuota. EJEMPLO: 'Con xG ${homeTeam}=1.9 y xG ${awayTeam}=1.1, la probabilidad matemática es 57%/23%/20%. [Jugador X] de ${homeTeam} es el desequilibrio principal con [N] goles en los últimos 5 partidos. La apuesta de mayor valor es Victoria ${homeTeam} con cuota 1.65 (valor +8.7%).' PROHIBIDO: 'partido equilibrado', 'difícil pronóstico', 'ambos en forma', 'partido a priori'.",
   "confianza": 0
 }`;
 
