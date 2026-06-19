@@ -229,7 +229,8 @@ export default function IAScreen() {
   // Genera sugerencias dinámicas al cargar + animación del header
   useEffect(() => {
     setLoadingSuggestions(true);
-    generateDynamicSuggestions()
+    buildLiveSnapshot()
+      .then(snap => { liveSnapshotRef.current = snap; return generateDynamicSuggestions(snap); })
       .then(s => setSuggestions(s))
       .finally(() => setLoadingSuggestions(false));
     Animated.loop(Animated.sequence([

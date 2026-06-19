@@ -396,8 +396,8 @@ WikiBet trackea automáticamente todos los pronósticos:
     setError(null);
   }, []);
 
-  // Genera sugerencias dinámicas vía IA
-  const generateDynamicSuggestions = useCallback(async (): Promise<string[]> => {
+  // Genera sugerencias dinámicas vía IA — usa el snapshot real de partidos de hoy
+  const generateDynamicSuggestions = useCallback(async (liveSnapshot?: string): Promise<string[]> => {
     const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
     const fallback = getComputedSuggestions();
 
@@ -425,11 +425,10 @@ WikiBet trackea automáticamente todos los pronósticos:
           messages: [{
             role: 'user',
             content: `Hoy es ${todayStr}. Mundial 2026 en curso.
-
-RESULTADOS JORNADA 1 completada. HOY 18 Jun: Uzbekistán vs Colombia, Rep.Checa vs Sudáfrica, Suiza vs Bosnia.
-PRÓXIMOS: 19 Jun México vs Corea del Sur, Canadá vs Catar.
-
-Genera EXACTAMENTE 5 preguntas cortas (max 60 chars cada una) que haría un apostador hoy sobre el Mundial 2026. Mezcla: partidos del día, value bets, análisis de equipos, gestión de bankroll, pronósticos. Usa emojis de bandera.
+${liveSnapshot && liveSnapshot.trim()
+  ? `\nPARTIDOS Y MARCADORES REALES DE HOY (úsalos, NO inventes otros):\n${liveSnapshot.trim()}\n`
+  : ''}
+Genera EXACTAMENTE 5 preguntas cortas (max 60 chars cada una) que haría un apostador HOY sobre los partidos REALES de arriba. Mezcla: partidos en vivo/de hoy, value bets, análisis de equipos, gestión de bankroll, pronósticos. Usa emojis de bandera de los equipos que juegan hoy.
 
 Devuelve SOLO un array JSON válido con 5 strings. Sin markdown, sin explicaciones.`
           }],

@@ -511,14 +511,40 @@ const aib = StyleSheet.create({
 });
 
 // ─── Post-match accuracy banner ───────────────────────────────────────────────
-function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
+// Shared: derive verification stats from events + fetched match stats.
+// Cards are KNOWN only with a timeline or a stats source — otherwise undefined
+// (pending), so a bet is NEVER marked wrong without real data.
+function deriveVStats(
+  match: CompetitionMatch, evts: MatchEvent[], matchStats?: LiveMatchStats | null,
+): { hg: number; ag: number; vStats: LiveMatchStats } {
   const hg = match.homeScore ?? 0;
   const ag = match.awayScore ?? 0;
+  const evtYellow = evts.filter(e => e.type === 'yellow').length;
+  const evtRed    = evts.filter(e => e.type === 'red').length;
+  const hasTimeline = evts.length > 0;
+  const cardsKnown = hasTimeline || matchStats?.yellowCards != null || matchStats?.redCards != null;
+  const yellowCards = cardsKnown ? Math.max(evtYellow, matchStats?.yellowCards ?? 0) : undefined;
+  const redCards    = cardsKnown ? Math.max(evtRed, matchStats?.redCards ?? 0) : undefined;
+  const scorers = (matchStats?.scorers && matchStats.scorers.length > 0)
+    ? matchStats.scorers
+    : evts.filter(e => e.type === 'goal' || e.type === 'penalty').map(e => (e.player ?? '').toLowerCase()).filter(Boolean);
+  return { hg, ag, vStats: { corners: matchStats?.corners, fouls: matchStats?.fouls, yellowCards, redCards, scorers } };
+}
 
-  // Dynamic: the AI emits however many predictions it's confident about
-  const preds   = buildConfidentPredictions(analysis.predicciones);
-  const verified = verifyPredictions(preds, hg, ag);
-  const correct  = verified.filter(p => p.hit === true).length;
+function PostMatchBanner({ match, analysis, matchEvents: evts = [], matchStats, accuracyMap }: {
+  match: CompetitionMatch;
+  analysis: AdvancedMatchAnalysis;
+  matchEvents?: MatchEvent[];
+  matchStats?: LiveMatchStats | null;
+  accuracyMap?: Record<string, { pct: number; total: number }>;
+}) {
+  const { hg, ag, vStats } = deriveVStats(match, evts, matchStats);
+
+  // SAME dynamic ≥70% AI bets as the main panel, verified with REAL stats
+  const preds    = buildDynamicPredictions(analysis, match.homeTeam, match.awayTeam, 70, accuracyMap);
+  const verified = verifyPredictionsWithStats(preds, hg, ag, vStats);
+  const decided  = verified.filter(p => p.hit !== undefined);
+  const correct  = decided.filter(p => p.hit === true).length;
 
   return (
     <View style={styles.postMatchBanner}>
@@ -528,20 +554,27 @@ function PostMatchBanner({ match, analysis }: { match: CompetitionMatch; analysi
           <Text style={styles.postMatchScore}>{hg} - {ag}</Text>
         </View>
         <Text style={styles.postMatchAccuracy}>
-          {correct}/{verified.length} pronósticos ✓
+          {correct}/{decided.length} aciertos{decided.length < verified.length ? ` · ${verified.length - decided.length} ⏳` : ''}
         </Text>
       </View>
       <View style={styles.postMatchChecks}>
-        {verified.map(p => (
-          <View key={p.market} style={styles.postMatchCheck}>
-            <Text style={[styles.postMatchCheckIcon, { color: p.hit ? '#22c55e' : '#ef4444' }]}>
-              {p.hit ? '✅' : '❌'}
-            </Text>
-            <Text style={[styles.postMatchCheckLabel, { color: p.hit ? colors.text.primary : colors.text.muted }]}>
-              {p.emoji} {p.label}
-            </Text>
-          </View>
-        ))}
+        {verified.map((p, i) => {
+          const icon  = p.hit === true ? '✅' : p.hit === false ? '❌' : '⏳';
+          const color = p.hit === true ? '#22c55e' : p.hit === false ? '#ef4444' : '#9ca3af';
+          return (
+            <View key={`${p.market}-${i}`} style={styles.postMatchCheck}>
+              <Text style={[styles.postMatchCheckIcon, { color }]}>{icon}</Text>
+              <Text style={[styles.postMatchCheckLabel, { color: p.hit === true ? colors.text.primary : colors.text.muted }]}>
+                {p.emoji} {p.label}{p.cuota ? `  @${p.cuota.toFixed(2)}` : ''}
+              </Text>
+            </View>
+          );
+        })}
+        {verified.length === 0 && (
+          <Text style={[styles.postMatchCheckLabel, { color: colors.text.muted }]}>
+            La IA no generó apuestas de fiabilidad ≥70% para este partido.
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -2213,6 +2246,9 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
             <PostMatchBanner
               match={{ ...selectedMatch, homeScore: liveHomeScore, awayScore: liveAwayScore }}
               analysis={analysis}
+              matchEvents={matchEvents}
+              matchStats={matchStats}
+              accuracyMap={accuracyMap}
             />
           </View>
         )}
