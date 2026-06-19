@@ -88,45 +88,31 @@ Real Madrid: Xabi Alonso | Barcelona: Hansi Flick | Man City: Pep Guardiola
 Argentina: Lionel Scaloni | Francia: Deschamps | Brasil: Dorival Júnior | España: Luis de la Fuente
 `;
 
-// ─── Contexto de partido en directo ──────────────────────────────────────────
-export interface LiveChatContext {
-  homeTeam: string;
-  awayTeam: string;
-  homeScore: number;
-  awayScore: number;
-  minute?: number;
-  status: 'live' | 'upcoming' | 'finished';
-  recentEvents?: string[]; // ["Min 23: Gol de Mbappé (Francia)", "Min 45+1: Tarjeta amarilla a Xhaka"]
-}
-
 // ─── Hook principal ───────────────────────────────────────────────────────────
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const buildSystemPrompt = (liveCtx?: LiveChatContext): string => {
+  // liveSnapshot: pre-formatted text of live/today matches injected each turn
+  const buildSystemPrompt = (liveSnapshot?: string): string => {
     const now = new Date();
     const today = now.toLocaleDateString('es-ES', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     });
     const time = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-    // Live match block (injected at top of system prompt when user is watching a live game)
-    const liveBlock = liveCtx ? `
+    // Live snapshot of today's / in-progress matches (real-time scores & events)
+    const liveBlock = liveSnapshot && liveSnapshot.trim() ? `
 ╔══════════════════════════════════════════════════════╗
-║  ⚡ PARTIDO EN DIRECTO — DATOS EN TIEMPO REAL        ║
+║  ⚡ MARCADORES EN DIRECTO — DATOS EN TIEMPO REAL     ║
 ╚══════════════════════════════════════════════════════╝
 
-${liveCtx.homeTeam} ${liveCtx.homeScore} - ${liveCtx.awayScore} ${liveCtx.awayTeam}
-Estado: ${liveCtx.status === 'live' ? `EN JUEGO${liveCtx.minute ? ` · Minuto ${liveCtx.minute}'` : ''}` : liveCtx.status === 'finished' ? 'FINALIZADO' : 'PRÓXIMO'}
+${liveSnapshot.trim()}
 
-${liveCtx.recentEvents && liveCtx.recentEvents.length > 0
-  ? `Eventos recientes:\n${liveCtx.recentEvents.map(e => `  • ${e}`).join('\n')}`
-  : ''}
-
-⚠️ USA ESTOS DATOS COMO REFERENCIA PRINCIPAL para responder sobre este partido.
-El usuario te pregunta desde la pantalla de análisis EN VIVO de este partido.
+⚠️ Estos son los marcadores y eventos REALES en este momento. Úsalos como fuente
+principal si el usuario pregunta por partidos de hoy o en directo. Si el resultado
+contradice una predicción previa, recálculala con el marcador actual.
 
 ` : '';
 
@@ -340,7 +326,7 @@ WikiBet trackea automáticamente todos los pronósticos:
   };
 
   const sendMessage = useCallback(
-    async (userMessage: string, liveCtx?: LiveChatContext) => {
+    async (userMessage: string, liveSnapshot?: string) => {
       setLoading(true);
       setError(null);
 
@@ -374,7 +360,7 @@ WikiBet trackea automáticamente todos los pronósticos:
           body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 4000,
-            system: buildSystemPrompt(liveCtx),
+            system: buildSystemPrompt(liveSnapshot),
             messages: newMessages.map(msg => ({
               role: msg.role,
               content: msg.content,

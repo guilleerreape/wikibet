@@ -358,6 +358,7 @@ export const advancedAIAnalysis = {
       awayForm: import('./sportsDbService').SDBTeamForm;
     },
     venue?: string,
+    historicalAccuracy?: string,   // MODO APRENDIZAJE: % acierto histórico por mercado
   ): Promise<AdvancedMatchAnalysis> {
     // Fetch weather if venue provided
     let weatherStr = '';
@@ -537,24 +538,23 @@ REF. SISTEMA ${awayTeam}: avgGoals=${awayTeamData?.avgGoals || 'N/D'}, winRate=$
    → PROHIBIDO: "partido equilibrado", "ningún favorito claro", "difícil de predecir", "ambos equipos en buena forma". Estas frases son inútiles. Si tienes datos → úsalos.
    → MÍNIMO 4 frases específicas. La última debe ser: "Apuesta recomendada: [selección concreta] a cuota [X.XX], valor positivo del [Y]%."
 
-⚠️ apuestasRecomendadas — VARÍA SEGÚN EL PARTIDO:
-   → Las apuestas deben derivarse DIRECTAMENTE de tus probabilidades calculadas para este partido.
-   → Si xG local es alto (>2.0): incluye goles locales over, primer goleador local.
-   → Si ambos defensivos: incluye under goals, btts no, resultado 0-0.
-   → Si hay historial de tarjetas entre estos equipos: incluye mercados de tarjetas específicos.
-   → NUNCA generes las mismas apuestas para todos los partidos.
-
-INSTRUCCIÓN APUESTAS CRÍTICA: Genera entre 10 y 15 apuestas en apuestasRecomendadas. OBLIGATORIO máxima variedad:
-  - 2-3 de córners (total partido, 1ª mitad, por equipo)
-  - 2 de tarjetas (total, jugador específico con amarilla)
-  - 1-2 resultado 1X2 o doble oportunidad
-  - 1-2 goles over/under (NO solo Over 0.5 — varía los umbrales)
-  - 1-2 primera mitad (resultado 1H, goles 1H)
-  - 1-2 jugadores específicos (goleador, asistencia)
-  - 1 arriesgada creativa (resultado exacto, doble marcador, etc.)
-  - 1 faltas over/under
-  → Ejemplo de variedad: "Corners locales 1ª parte Over 3.5", "Tarjeta amarilla a [jugador]", "Resultado 1ª mitad: empate", "Goles locales Over 1.5", "Faltas totales Over 19.5"
-  → PROHIBIDO hacer solo apuestas de "Over 0.5 goles" o "Victoria local" — eso no es variedad.
+🔥 apuestasRecomendadas — REGLA DE ORO (LÉELA BIEN):
+   → SOLO incluye apuestas en las que tu fiabilidad real sea DEL 70% O MÁS. Nada por debajo de 70.
+   → NO hay número fijo: si para este partido solo tienes 1 apuesta clara, devuelve 1. Si tienes 12, devuelve 12.
+   → PROHIBIDO inventar apuestas de relleno con probabilidad 40-65% solo por completar. Si no llega a 70%, FUERA.
+   → PROHIBIDO una estructura fija. NO generes "siempre córners + siempre tarjetas + siempre faltas". Cada partido es distinto.
+   → Dos partidos diferentes NO deben tener el mismo conjunto de apuestas. Derívalas de ESTE marcador esperado, ESTE xG, ESTAS alineaciones.
+   → "probabilidad" = tu fiabilidad real 70-99 (entero). "cuota" = cuota de mercado realista. "valor" = (prob/100*cuota - 1).
+   → Tipos posibles (usa SOLO los que superen 70% aquí): "Más de X.5 goles", "Menos de X.5 goles", "Ambos marcan / no", "Victoria [equipo]", "Doble oportunidad 1X/X2", "Más/Menos de X.5 córners", "Más/Menos de X.5 tarjetas", "Más de X.5 faltas", "[Jugador] marca".
+   → Redacta "seleccion" de forma clara y parseable (ej: "Más de 8.5 córners", "Más de 3.5 tarjetas", "Victoria ${homeTeam}", "Doble oportunidad 1X").
+   → EJEMPLO partido con goleada esperada: [{"mercado":"Goles","seleccion":"Más de 2.5 goles","cuota":1.55,"probabilidad":82,...},{"mercado":"Resultado","seleccion":"Victoria ${homeTeam}","cuota":1.40,"probabilidad":78,...}]
+   → EJEMPLO partido cerrado: quizá solo [{"mercado":"Goles","seleccion":"Menos de 3.5 goles","cuota":1.45,"probabilidad":74,...}] — y NADA MÁS. Está bien tener pocas.
+${historicalAccuracy ? `
+📈 TU HISTÓRICO DE ACIERTO POR MERCADO (APRENDE DE ÉL — AUTOCORRÍGETE):
+   ${historicalAccuracy}
+   → En los mercados donde tu acierto histórico es BAJO (<60%), sé MÁS conservador: sube el listón, solo apuesta si estás MUY seguro.
+   → En los mercados donde aciertas mucho (>75%), puedes confiar más.
+   → Ajusta tus probabilidades para que reflejen tu rendimiento REAL, no el ideal.` : ''}
 
 DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-100 para probabilidades (excepto xG y cuotas).
 

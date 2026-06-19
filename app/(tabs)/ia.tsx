@@ -16,6 +16,47 @@ import { colors } from '@/constants/colors';
 import { useChat } from '@/hooks/useChat';
 import { useAuth } from '@/contexts/AuthContext';
 import { FREE_LIMITS } from '@/services/supabase';
+import { espnMatchService } from '@/services/espnMatchService';
+import { sportsDbService } from '@/services/sportsDbService';
+
+// Build a real-time snapshot of live / today's matches to feed the chat IA.
+async function buildLiveSnapshot(): Promise<string> {
+  try {
+    const matches = await espnMatchService.getMatches('FIFA.WORLD');
+    const now = Date.now();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const live = matches.filter(m => m.status === 'live');
+    const finishedToday = matches.filter(m => m.status === 'finished' && (m.date || '').slice(0, 10) === todayStr);
+    const upcomingToday = matches.filter(m => m.status === 'upcoming' && (m.date || '').slice(0, 10) === todayStr);
+
+    const lines: string[] = [];
+
+    // Live matches: enrich with minute + scorers
+    for (const m of live.slice(0, 6)) {
+      let extra = '';
+      try {
+        const ld = await sportsDbService.getLiveMatchScore(m.id);
+        const evs = await sportsDbService.getMatchEvents(m.id, m.homeTeam, m.awayTeam);
+        const goals = evs.filter(e => e.type === 'goal' || e.type === 'penalty')
+          .map(e => `${e.player} ${e.minute}'`).join(', ');
+        const min = ld?.minute != null ? ` (min ${ld.minute}')` : '';
+        extra = `${min}${goals ? ` — goles: ${goals}` : ''}`;
+      } catch {}
+      lines.push(`🔴 EN VIVO: ${m.homeTeam} ${m.homeScore ?? 0}-${m.awayScore ?? 0} ${m.awayTeam}${extra}`);
+    }
+    for (const m of finishedToday.slice(0, 8)) {
+      lines.push(`✅ FINAL hoy: ${m.homeTeam} ${m.homeScore ?? 0}-${m.awayScore ?? 0} ${m.awayTeam}`);
+    }
+    for (const m of upcomingToday.slice(0, 8)) {
+      const t = new Date(m.date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      lines.push(`🕐 HOY ${t}: ${m.homeTeam} vs ${m.awayTeam}`);
+    }
+    void now;
+    return lines.join('\n');
+  } catch {
+    return '';
+  }
+}
 
 // ─── Renderizador de mensajes IA ──────────────────────────────────────────────
 function MessageRenderer({ text }: { text: string }) {
@@ -180,6 +221,7 @@ export default function IAScreen() {
   const [inputText, setInputText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const liveSnapshotRef = useRef<string>('');
   const headerBg = useRef(new Animated.Value(0)).current;
 
   const chatLeft = (isPremium || !user) ? Infinity : Math.max(0, FREE_LIMITS.chat_messages - dailyUsage.chat_messages);
@@ -202,6 +244,15 @@ export default function IAScreen() {
     }
   }, [messages, loading]);
 
+  // ─── Real-time live snapshot for the chat (refreshes every 45s) ─────────────
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => buildLiveSnapshot().then(s => { if (alive) liveSnapshotRef.current = s; }).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 45 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
   const handleSend = async () => {
     const text = inputText.trim();
     if (!text || loading) return;
@@ -209,7 +260,9 @@ export default function IAScreen() {
     const ok = await trackChat();
     if (!ok) return;
     setInputText('');
-    await sendMessage(text);
+    // Refresh the snapshot right before sending so scores are current
+    try { liveSnapshotRef.current = await buildLiveSnapshot(); } catch {}
+    await sendMessage(text, liveSnapshotRef.current);
   };
 
   const handleSuggestion = async (q: string) => {
@@ -218,7 +271,8 @@ export default function IAScreen() {
     const ok = await trackChat();
     if (!ok) return;
     setInputText('');
-    await sendMessage(q);
+    try { liveSnapshotRef.current = await buildLiveSnapshot(); } catch {}
+    await sendMessage(q, liveSnapshotRef.current);
   };
 
   return (

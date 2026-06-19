@@ -23,7 +23,7 @@ import MatchEventsPanel from '@/components/MatchEventsPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
-import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, buildDynamicPredictions, verifyPredictions, verifyPredictionsWithStats, LiveMatchStats } from '@/services/predictionTracker';
+import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, buildDynamicPredictions, verifyPredictions, verifyPredictionsWithStats, getMarketAccuracyMap, formatAccuracyForPrompt, LiveMatchStats } from '@/services/predictionTracker';
 import { diffAndLogAnalysis } from '@/services/predictionChangeLog';
 import { sportsDbService } from '@/services/sportsDbService';
 import { apiFootballService } from '@/services/apiFootballService';
@@ -40,26 +40,35 @@ async function fetchCombinedStats(
   match: CompetitionMatch,
   events: MatchEvent[],
 ): Promise<LiveMatchStats> {
-  // Cards from events (red counts as a card for betting)
-  let yellow = events.filter(e => e.type === 'yellow').length;
-  let red    = events.filter(e => e.type === 'red').length;
+  // Cards from the events timeline (red counts as a card for betting)
+  const evtYellow = events.filter(e => e.type === 'yellow').length;
+  const evtRed    = events.filter(e => e.type === 'red').length;
+  const hasTimeline = events.length > 0; // timeline present → card counts are trustworthy
   const scorers = events
     .filter(e => e.type === 'goal' || e.type === 'penalty')
     .map(e => (e.player ?? '').toLowerCase())
     .filter(Boolean);
+
   let corners: number | undefined;
   let fouls:   number | undefined;
+  let cardYellow: number | undefined;
+  let cardRed:    number | undefined;
+  let cardsKnown = hasTimeline;          // events feed gives reliable card totals
+  if (hasTimeline) { cardYellow = evtYellow; cardRed = evtRed; }
 
   const slug = (match.leagueId || 'FIFA.WORLD').toLowerCase();
 
   // ESPN summary stats (works when match.id is an ESPN event id)
   try {
     const espn = await espnMatchService.getMatchStats(match.id, slug);
-    if (espn) {
-      if (espn.corners.total > 0) corners = espn.corners.total;
-      if (espn.fouls.total   > 0) fouls   = espn.fouls.total;
-      yellow = Math.max(yellow, espn.yellowCards.total);
-      red    = Math.max(red, espn.redCards.total);
+    if (espn?.hasData) {
+      if (corners == null && espn.corners.found) corners = espn.corners.total;
+      if (fouls   == null && espn.fouls.found)   fouls   = espn.fouls.total;
+      if (espn.yellowCards.found || espn.redCards.found) {
+        cardYellow = Math.max(cardYellow ?? 0, espn.yellowCards.total);
+        cardRed    = Math.max(cardRed ?? 0, espn.redCards.total);
+        cardsKnown = true;
+      }
     }
   } catch {}
 
@@ -69,29 +78,35 @@ async function fetchCombinedStats(
     if (sdb?.hasData) {
       if (corners == null && sdb.corners.total > 0) corners = sdb.corners.total;
       if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
-      yellow = Math.max(yellow, sdb.yellowCards.total);
-      red    = Math.max(red, sdb.redCards.total);
+      if (sdb.totalCards > 0) {
+        cardYellow = Math.max(cardYellow ?? 0, sdb.yellowCards.total);
+        cardRed    = Math.max(cardRed ?? 0, sdb.redCards.total);
+        cardsKnown = true;
+      }
     }
   } catch {}
 
   // API-Football (most detailed; only if EXPO_PUBLIC_API_FOOTBALL_KEY is configured)
   try {
-    if (apiFootballService.isEnabled() && (corners == null || fouls == null)) {
+    if (apiFootballService.isEnabled() && (corners == null || fouls == null || !cardsKnown)) {
       const af = await apiFootballService.getMatchStats(match.homeTeam, match.awayTeam, match.date);
       if (af?.hasData) {
         if (corners == null && af.corners.total > 0) corners = af.corners.total;
         if (fouls   == null && af.fouls.total   > 0) fouls   = af.fouls.total;
-        yellow = Math.max(yellow, af.yellowCards.total);
-        red    = Math.max(red, af.redCards.total);
+        if (af.totalCards > 0) {
+          cardYellow = Math.max(cardYellow ?? 0, af.yellowCards.total);
+          cardRed    = Math.max(cardRed ?? 0, af.redCards.total);
+          cardsKnown = true;
+        }
       }
     }
   } catch {}
 
   return {
-    corners,
-    fouls,
-    yellowCards: yellow,
-    redCards:    red,
+    corners,                                       // undefined → pending (never false ❌)
+    fouls,                                          // undefined → pending
+    yellowCards: cardsKnown ? (cardYellow ?? 0) : undefined,
+    redCards:    cardsKnown ? (cardRed ?? 0) : undefined,
     scorers,
   };
 }
@@ -264,11 +279,12 @@ class AnalysisErrorBoundary extends Component<
 }
 
 // ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
-function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
+function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats, accuracyMap }: {
   match: CompetitionMatch;
   analysis: AdvancedMatchAnalysis;
   matchEvents?: MatchEvent[];
   matchStats?: LiveMatchStats | null;
+  accuracyMap?: Record<string, { pct: number; total: number }>;
 }) {
   if (!analysis?.predicciones) return null;
   const isFinished = match.status === 'finished';
@@ -278,16 +294,22 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
 
   // ─── Live stats: cards/scorers from events, corners/fouls from fetched stats ─
   const liveGoals   = hg + ag;
-  const liveYellows = Math.max(evts.filter(e => e.type === 'yellow').length, matchStats?.yellowCards ?? 0);
-  const liveReds    = Math.max(evts.filter(e => e.type === 'red').length, matchStats?.redCards ?? 0);
-  const liveCards   = liveYellows + liveReds;
+  const evtYellow   = evts.filter(e => e.type === 'yellow').length;
+  const evtRed      = evts.filter(e => e.type === 'red').length;
+  const hasTimeline = evts.length > 0; // timeline present → card counts reliable
+  // Cards are KNOWN only if we have a timeline OR a stats source reported them.
+  // Otherwise undefined → pending (⏳), never a false ❌.
+  const cardsKnown  = hasTimeline || matchStats?.yellowCards != null || matchStats?.redCards != null;
+  const liveYellows = cardsKnown ? Math.max(evtYellow, matchStats?.yellowCards ?? 0) : undefined;
+  const liveReds    = cardsKnown ? Math.max(evtRed, matchStats?.redCards ?? 0) : undefined;
+  const liveCards   = cardsKnown ? (liveYellows ?? 0) + (liveReds ?? 0) : undefined;
   const liveCorners = matchStats?.corners;
   const liveFouls   = matchStats?.fouls;
   const liveScorers = (matchStats?.scorers && matchStats.scorers.length > 0)
     ? matchStats.scorers
     : evts.filter(e => e.type === 'goal' || e.type === 'penalty').map(e => (e.player ?? '').toLowerCase()).filter(Boolean);
 
-  // Stats object used for verification (cards always available from events)
+  // Stats object used for verification (undefined fields → pending, not wrong)
   const vStats: LiveMatchStats = {
     corners:     liveCorners,
     fouls:       liveFouls,
@@ -301,7 +323,7 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
     if (!isLive && !isFinished) return null;
     const m = p.market;
     if (m.startsWith('corners_')) return liveCorners != null ? `Actualmente ${liveCorners} córners` : '⏳ Córners: pendiente de datos';
-    if (m.startsWith('cards_'))   return `Actualmente ${liveCards} tarjeta${liveCards !== 1 ? 's' : ''} (${liveYellows}🟨${liveReds > 0 ? ` ${liveReds}🟥` : ''})`;
+    if (m.startsWith('cards_'))   return liveCards != null ? `Actualmente ${liveCards} tarjeta${liveCards !== 1 ? 's' : ''} (${liveYellows ?? 0}🟨${(liveReds ?? 0) > 0 ? ` ${liveReds}🟥` : ''})` : '⏳ Tarjetas: pendiente de datos';
     if (m.startsWith('fouls_'))   return liveFouls != null ? `Actualmente ${liveFouls} faltas` : '⏳ Faltas: pendiente de datos';
     if (/^(over|under)\d/.test(m)) return `${liveGoals} gol${liveGoals !== 1 ? 'es' : ''} marcados`;
     if (m === 'btts' || m === 'btts_no') return `Local ${hg} · Visitante ${ag}`;
@@ -314,7 +336,8 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
   };
 
   // Build DYNAMIC bets from the AI's own recommendations (varied per match, real odds)
-  const preds    = buildDynamicPredictions(analysis, match.homeTeam, match.awayTeam);
+  // Only ≥70% confidence, calibrated with historical accuracy (modo aprendizaje)
+  const preds    = buildDynamicPredictions(analysis, match.homeTeam, match.awayTeam, 70, accuracyMap);
   const verified = (isFinished || isLive)
     ? verifyPredictionsWithStats(preds, hg, ag, vStats)
     : preds;
@@ -358,7 +381,9 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
               ? `Resultado: ${correct}/${decided.length} acertados${decided.length < total ? ` · ${total - decided.length} pendiente(s)` : ''}`
               : isLive
               ? `En directo · ${correct}/${decided.length || total} ✓ · ${total} apuestas IA`
-              : `${total} apuestas generadas por IA para este partido`}
+              : total > 0
+              ? `${total} apuesta${total !== 1 ? 's' : ''} IA con fiabilidad ≥70%`
+              : `Sin apuestas de fiabilidad ≥70%`}
           </Text>
         </View>
         {isFinished && hitPct !== null && (
@@ -408,6 +433,17 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
         );
       })}
 
+      {/* Empty state: AI has no high-confidence (≥70%) bets for this match */}
+      {verified.length === 0 && (
+        <View style={aib.emptyWrap}>
+          <Text style={aib.emptyTitle}>Sin apuestas de alta fiabilidad</Text>
+          <Text style={aib.emptyText}>
+            La IA no ha encontrado ninguna apuesta con ≥70% de fiabilidad para este partido.
+            Solo mostramos apuestas en las que la IA confía de verdad.
+          </Text>
+        </View>
+      )}
+
       {/* Footer note */}
       <View style={aib.footer}>
         <Text style={aib.footerText}>
@@ -415,7 +451,7 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
             ? `📊 Verificado con estadísticas reales (córners, tarjetas, faltas) · Cuenta en % Aciertos IA`
             : isLive
             ? `🔴 En directo · se actualiza con cada gol, tarjeta y córner`
-            : `📌 Apuestas generadas por IA con cuotas reales y análisis de mercado`}
+            : `📌 Solo apuestas IA con fiabilidad ≥70% · cuotas reales de mercado`}
         </Text>
       </View>
     </View>
@@ -469,6 +505,9 @@ const aib = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#0f1e2e',
   },
   footerText: { fontSize: 9, color: '#374151', fontStyle: 'italic' },
+  emptyWrap: { paddingHorizontal: 16, paddingVertical: 18, alignItems: 'center', gap: 4 },
+  emptyTitle: { fontSize: 12, fontWeight: '800', color: '#9ca3af' },
+  emptyText: { fontSize: 10, color: '#6b7280', textAlign: 'center', lineHeight: 14 },
 });
 
 // ─── Post-match accuracy banner ───────────────────────────────────────────────
@@ -788,6 +827,8 @@ export default function MatchesScreen() {
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
   const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
   const [matchStats, setMatchStats] = useState<LiveMatchStats | null>(null);
+  // MODO APRENDIZAJE: histórico de acierto por mercado, para calibrar la confianza IA
+  const [accuracyMap, setAccuracyMap] = useState<Record<string, { pct: number; total: number }>>({});
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Store TheSportsDB context for squad fallback in lineup building
   const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
@@ -959,6 +1000,13 @@ export default function MatchesScreen() {
   useEffect(() => {
     const ticker = setInterval(() => setLiveTick(t => t + 1), 30 * 1000);
     return () => clearInterval(ticker);
+  }, []);
+
+  // ─── MODO APRENDIZAJE: load historical accuracy per market (calibrates IA) ────
+  useEffect(() => {
+    getMarketAccuracyMap().then(setAccuracyMap).catch(() => {});
+    const id = setInterval(() => { getMarketAccuracyMap().then(setAccuracyMap).catch(() => {}); }, 5 * 60 * 1000);
+    return () => clearInterval(id);
   }, []);
 
   // ─── Pre-match lineup auto-check: for ALL upcoming matches (coaches submit lineups 1h before) ────
@@ -1477,6 +1525,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       const result = await advancedAIAnalysis.analyzeMatchComprehensive(
         match.homeTeam, match.awayTeam, match.league, sdbContext ?? undefined,
         match.venue,
+        formatAccuracyForPrompt(accuracyMap),   // MODO APRENDIZAJE: feed past accuracy
       );
       setAnalysisWithLog(result, `${match.homeTeam} - ${match.awayTeam}`);  // Replace local analysis with AI result
 
@@ -1507,8 +1556,8 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           const predicted = outcomeFromProbs(
             probs.victoriaLocal, probs.empate, probs.victoriaVisitante
           );
-          // Store the AI's DYNAMIC bets (varied per match: incl. córners/tarjetas/faltas)
-          const preds = buildDynamicPredictions(result, match.homeTeam, match.awayTeam);
+          // Store the AI's DYNAMIC bets (≥70%, calibrated with historical accuracy)
+          const preds = buildDynamicPredictions(result, match.homeTeam, match.awayTeam, 70, accuracyMap);
           savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
           savePredTimestamp(match.id);
           if (match.status === 'finished' &&
@@ -2240,7 +2289,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* APUESTA DE LA IA — between Conclusion and 1X2 */}
-        <AiBetPanel match={selectedMatch} analysis={analysis} matchEvents={matchEvents} matchStats={matchStats} />
+        <AiBetPanel match={selectedMatch} analysis={analysis} matchEvents={matchEvents} matchStats={matchStats} accuracyMap={accuracyMap} />
 
         {/* 1X2 */}
         <Section icon="🎯" title="PROBABILIDADES 1X2" accent="#22c55e" delay={160}>

@@ -714,36 +714,46 @@ export const espnMatchService = {
       const teams: any[] = data?.boxscore?.teams ?? [];
       if (teams.length < 2) return null;
 
-      const getStat = (statsArr: any[], ...names: string[]): number => {
+      // getStat returns { value, found }. ESPN soccer names: wonCorners, foulsCommitted,
+      // yellowCards, redCards, possessionPct, totalShots, shotsOnTarget.
+      const getStat = (statsArr: any[], ...names: string[]): { value: number; found: boolean } => {
         for (const name of names) {
           const s = statsArr.find((x: any) =>
             (x.name ?? '').toLowerCase() === name.toLowerCase() ||
             (x.abbreviation ?? '').toLowerCase() === name.toLowerCase()
           );
-          if (s) return parseInt(s.displayValue ?? '0', 10) || 0;
+          if (s) {
+            const raw = s.displayValue ?? s.value ?? '0';
+            const v = parseInt(String(raw).replace('%', ''), 10);
+            return { value: isNaN(v) ? 0 : v, found: true };
+          }
         }
-        return 0;
+        return { value: 0, found: false };
       };
 
       const homeStats: any[] = teams[0]?.statistics ?? [];
       const awayStats: any[]  = teams[1]?.statistics ?? [];
 
-      const homeYellow = getStat(homeStats, 'yellowCards', 'yellowcrds', 'yellowcard');
-      const awayYellow = getStat(awayStats, 'yellowCards', 'yellowcrds', 'yellowcard');
-      const homeRed    = getStat(homeStats, 'redCards', 'redcrds', 'redcard');
-      const awayRed    = getStat(awayStats, 'redCards', 'redcrds', 'redcard');
-      const homeCorner = getStat(homeStats, 'cornerKicks', 'corners', 'cornerkick');
-      const awayCorner = getStat(awayStats, 'cornerKicks', 'corners', 'cornerkick');
-      const homeFouls  = getStat(homeStats, 'fouls', 'foulsConceded', 'totalfouls');
-      const awayFouls  = getStat(awayStats, 'fouls', 'foulsConceded', 'totalfouls');
+      const hY = getStat(homeStats, 'yellowCards', 'yellowcards'); const aY = getStat(awayStats, 'yellowCards', 'yellowcards');
+      const hR = getStat(homeStats, 'redCards', 'redcards');       const aR = getStat(awayStats, 'redCards', 'redcards');
+      const hC = getStat(homeStats, 'wonCorners', 'cornerKicks', 'corners', 'corner');
+      const aC = getStat(awayStats, 'wonCorners', 'cornerKicks', 'corners', 'corner');
+      const hF = getStat(homeStats, 'foulsCommitted', 'fouls', 'totalfouls');
+      const aF = getStat(awayStats, 'foulsCommitted', 'fouls', 'totalfouls');
+
+      const cornersFound = hC.found || aC.found;
+      const cardsFound   = hY.found || aY.found || hR.found || aR.found;
+      const foulsFound   = hF.found || aF.found;
+      const hasData = cornersFound || cardsFound || foulsFound;
+      if (!hasData) return null;   // no real stats → caller treats markets as pending
 
       return {
-        corners:     { home: homeCorner, away: awayCorner, total: homeCorner + awayCorner },
-        yellowCards: { home: homeYellow, away: awayYellow, total: homeYellow + awayYellow },
-        redCards:    { home: homeRed,    away: awayRed,    total: homeRed + awayRed },
-        fouls:       { home: homeFouls,  away: awayFouls,  total: homeFouls + awayFouls },
-        // Total cards for betting = yellows + reds (each red counts as 1 card event)
-        totalCards:  homeYellow + awayYellow + homeRed + awayRed,
+        corners:     { home: hC.value, away: aC.value, total: hC.value + aC.value, found: cornersFound },
+        yellowCards: { home: hY.value, away: aY.value, total: hY.value + aY.value, found: cardsFound },
+        redCards:    { home: hR.value, away: aR.value, total: hR.value + aR.value, found: cardsFound },
+        fouls:       { home: hF.value, away: aF.value, total: hF.value + aF.value, found: foulsFound },
+        totalCards:  hY.value + aY.value + hR.value + aR.value,
+        hasData,
       };
     } catch {
       return null;
@@ -752,9 +762,10 @@ export const espnMatchService = {
 };
 
 export interface MatchStats {
-  corners:     { home: number; away: number; total: number };
-  yellowCards: { home: number; away: number; total: number };
-  redCards:    { home: number; away: number; total: number };
-  fouls:       { home: number; away: number; total: number };
+  corners:     { home: number; away: number; total: number; found: boolean };
+  yellowCards: { home: number; away: number; total: number; found: boolean };
+  redCards:    { home: number; away: number; total: number; found: boolean };
+  fouls:       { home: number; away: number; total: number; found: boolean };
   totalCards:  number; // yellows + reds (for betting purposes)
+  hasData:     boolean;
 }

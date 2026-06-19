@@ -11,13 +11,17 @@ import { colors } from '../constants/colors';
 
 // Resolve real corners/cards/fouls for a stored match (ESPN + TheSportsDB + API-Football).
 async function fetchStatsForMatch(matchId: string, home: string, away: string, dateISO: string): Promise<LiveMatchStats | null> {
-  let corners: number | undefined, fouls: number | undefined, yellow = 0, red = 0;
+  let corners: number | undefined, fouls: number | undefined;
+  let yellow: number | undefined, red: number | undefined;
+  let cardsKnown = false;
   try {
     const espn = await espnMatchService.getMatchStats(matchId, 'fifa.world');
-    if (espn) {
-      if (espn.corners.total > 0) corners = espn.corners.total;
-      if (espn.fouls.total   > 0) fouls   = espn.fouls.total;
-      yellow = espn.yellowCards.total; red = espn.redCards.total;
+    if (espn?.hasData) {
+      if (corners == null && espn.corners.found) corners = espn.corners.total;
+      if (fouls   == null && espn.fouls.found)   fouls   = espn.fouls.total;
+      if (espn.yellowCards.found || espn.redCards.found) {
+        yellow = espn.yellowCards.total; red = espn.redCards.total; cardsKnown = true;
+      }
     }
   } catch {}
   try {
@@ -25,23 +29,33 @@ async function fetchStatsForMatch(matchId: string, home: string, away: string, d
     if (sdb?.hasData) {
       if (corners == null && sdb.corners.total > 0) corners = sdb.corners.total;
       if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
-      yellow = Math.max(yellow, sdb.yellowCards.total);
-      red    = Math.max(red, sdb.redCards.total);
+      if (sdb.totalCards > 0) {
+        yellow = Math.max(yellow ?? 0, sdb.yellowCards.total);
+        red    = Math.max(red ?? 0, sdb.redCards.total);
+        cardsKnown = true;
+      }
     }
   } catch {}
   try {
-    if (apiFootballService.isEnabled() && (corners == null || fouls == null)) {
+    if (apiFootballService.isEnabled() && (corners == null || fouls == null || !cardsKnown)) {
       const af = await apiFootballService.getMatchStats(home, away, dateISO);
       if (af?.hasData) {
         if (corners == null && af.corners.total > 0) corners = af.corners.total;
         if (fouls   == null && af.fouls.total   > 0) fouls   = af.fouls.total;
-        yellow = Math.max(yellow, af.yellowCards.total);
-        red    = Math.max(red, af.redCards.total);
+        if (af.totalCards > 0) {
+          yellow = Math.max(yellow ?? 0, af.yellowCards.total);
+          red    = Math.max(red ?? 0, af.redCards.total);
+          cardsKnown = true;
+        }
       }
     }
   } catch {}
-  if (corners == null && fouls == null && yellow === 0 && red === 0) return null;
-  return { corners, fouls, yellowCards: yellow, redCards: red };
+  if (corners == null && fouls == null && !cardsKnown) return null;
+  return {
+    corners, fouls,
+    yellowCards: cardsKnown ? (yellow ?? 0) : undefined,
+    redCards:    cardsKnown ? (red ?? 0) : undefined,
+  };
 }
 
 interface Props { visible: boolean; onClose: () => void }

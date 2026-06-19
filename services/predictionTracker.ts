@@ -163,43 +163,109 @@ export function buildConfidentPredictions(predicciones: any): PredItem[] {
   return preds;
 }
 
+// ─── MODO APRENDIZAJE: histórico de acierto por mercado ───────────────────────
+// Returns { marketGroup → { pct, total } } from all verified predictions.
+// Used to CALIBRATE the AI's confidence: markets the AI historically misses get
+// their confidence pulled down (and may drop below the 70% display threshold).
+export async function getMarketAccuracyMap(): Promise<Record<string, { pct: number; total: number }>> {
+  try {
+    const { data } = await supabase
+      .from('match_predictions')
+      .select('predictions_json')
+      .not('actual_outcome', 'is', null);
+    const acc: Record<string, { c: number; t: number }> = {};
+    for (const row of data ?? []) {
+      for (const p of ((row as any).predictions_json ?? []) as PredItem[]) {
+        if (p.hit === undefined || p.hit === null) continue;
+        const g = normalizeMarketGroup(p.market);
+        if (!acc[g]) acc[g] = { c: 0, t: 0 };
+        acc[g].t++;
+        if (p.hit === true) acc[g].c++;
+      }
+    }
+    const out: Record<string, { pct: number; total: number }> = {};
+    for (const k of Object.keys(acc)) {
+      out[k] = { pct: Math.round((acc[k].c / acc[k].t) * 100), total: acc[k].t };
+    }
+    return out;
+  } catch { return {}; }
+}
+
+// Blend the AI's confidence with its real historical hit-rate for that market.
+// Weight grows with sample size (more history → more trust in reality).
+export function calibrateConfidence(
+  market: string, aiProb: number, map?: Record<string, { pct: number; total: number }>,
+): number {
+  if (!map) return aiProb;
+  const h = map[normalizeMarketGroup(market)];
+  if (!h || h.total < 5) return aiProb;           // not enough history yet
+  const w = Math.min(0.5, h.total / 40);          // up to 50% weight on reality
+  return Math.round(aiProb * (1 - w) + h.pct * w);
+}
+
+// Build a short human summary of historical accuracy to feed the AI prompt.
+export function formatAccuracyForPrompt(map: Record<string, { pct: number; total: number }>): string {
+  const labels: Record<string, string> = {
+    corners: 'Córners', cards: 'Tarjetas', fouls: 'Faltas', double_chance: 'Doble oportunidad',
+    btts: 'Ambos marcan', btts_no: 'No ambos marcan', '1x2': 'Resultado 1X2', scorer: 'Goleador',
+  };
+  const entries = Object.entries(map)
+    .filter(([, v]) => v.total >= 3)
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 12)
+    .map(([k, v]) => `${labels[k] ?? k}: ${v.pct}% acierto (${v.total} apuestas)`);
+  return entries.length ? entries.join(' · ') : '';
+}
+
+// Move normalizeMarketGroup up so the learning helpers above can use it.
+function normalizeMarketGroup(market: string): string {
+  if (market.startsWith('corners_')) return 'corners';
+  if (market.startsWith('cards_'))   return 'cards';
+  if (market.startsWith('fouls_'))   return 'fouls';
+  if (market.startsWith('dc_'))      return 'double_chance';
+  return market;
+}
+
 // ─── Build verifiable predictions from the AI's own recommended bets ──────────
-// Reads analysis.apuestasRecomendadas (varied + reasoned per match, with real odds)
-// and parses each into a verifiable PredItem. This makes the AI bet panel DYNAMIC
-// per match instead of always emitting the same generic markets.
-export function buildDynamicPredictions(analysis: any, homeTeam: string, awayTeam: string): PredItem[] {
+// FULLY DYNAMIC: only emits the bets the AI is confident about (≥ minConfidence%).
+// No fixed structure, no forced 1X2, no generic filler. The number of bets varies
+// per match (could be 1, could be 15). Each carries its real market odds (cuota).
+export function buildDynamicPredictions(
+  analysis: any,
+  homeTeam: string,
+  awayTeam: string,
+  minConfidence = 70,
+  accuracyMap?: Record<string, { pct: number; total: number }>,
+): PredItem[] {
   const apuestas: any[] = analysis?.apuestasRecomendadas ?? [];
   const out: PredItem[] = [];
   const seen = new Set<string>();
 
   const push = (item: PredItem) => {
-    if (seen.has(item.market)) return;
-    seen.add(item.market);
-    out.push(item);
+    // MODO APRENDIZAJE: calibrate the AI confidence with real historical hit-rate
+    const calProb = calibrateConfidence(item.market, item.prob ?? 0, accuracyMap);
+    const calItem = { ...item, prob: calProb };
+    if (calProb < minConfidence) return;            // ONLY high-confidence bets (post-calibration)
+    if (seen.has(calItem.market)) return;
+    seen.add(calItem.market);
+    out.push(calItem);
   };
 
-  // Always include the headline 1X2 from computed probabilities
-  const probs = analysis?.predicciones?.probabilidades;
-  if (probs) {
-    const pL = probs.victoriaLocal ?? 0, pD = probs.empate ?? 0, pA = probs.victoriaVisitante ?? 0;
-    const outcome: Outcome = pL >= pD && pL >= pA ? 'local' : pD >= pL && pD >= pA ? 'empate' : 'visitante';
-    push({
-      market: '1x2', emoji: '🏆',
-      label: outcome === 'local' ? `Victoria ${homeTeam}` : outcome === 'empate' ? 'Empate' : `Victoria ${awayTeam}`,
-      value: outcome, prob: Math.round(Math.max(pL, pD, pA)),
-      cuota: analysis?.predicciones?.cuotasTeoricas?.[outcome === 'local' ? 'victoriaLocal' : outcome === 'empate' ? 'empate' : 'victoriaVisitante'],
-    });
-  }
-
+  // SINGLE source of truth: the AI's own recommended bets for THIS match.
+  // No default/structured list is mixed in, so two matches almost never coincide.
   for (const a of apuestas) {
     const parsed = parseBetToPredItem(a, homeTeam, awayTeam);
     if (parsed) push(parsed);
   }
 
-  // If the AI gave us almost nothing parseable, fall back to structured markets
-  if (out.length < 4 && analysis?.predicciones) {
+  // Only if NOTHING parsed (e.g. legacy analysis without apuestasRecomendadas),
+  // fall back to structured markets — still filtered to ≥ minConfidence.
+  if (out.length === 0 && analysis?.predicciones) {
     for (const p of buildConfidentPredictions(analysis.predicciones)) push(p);
   }
+
+  // Highest-confidence first
+  out.sort((a, b) => (b.prob ?? 0) - (a.prob ?? 0));
   return out;
 }
 
@@ -514,6 +580,9 @@ export async function savePrediction(
   predictions:      PredItem[] = [],
 ): Promise<void> {
   try {
+    // Update on conflict (ignoreDuplicates:false) so the LATEST AI bets are always
+    // stored — newly-generated markets auto-appear in the % Aciertos IA table.
+    // For finished matches, updateActualResult re-verifies right after.
     await supabase.from('match_predictions').upsert(
       {
         match_id:          matchId,
@@ -524,7 +593,7 @@ export async function savePrediction(
         predicted_outcome: predictedOutcome,
         predictions_json:  predictions,
       },
-      { onConflict: 'match_id', ignoreDuplicates: true }
+      { onConflict: 'match_id' }
     );
   } catch { /* silent */ }
 }
@@ -600,14 +669,7 @@ export async function reVerifyAllMatches(
 }
 
 // Group parameterized markets into clean categories for the accuracy table.
-// All corner lines → "corners", all card lines → "cards", etc. Goals stay per-line.
-function normalizeMarketGroup(market: string): string {
-  if (market.startsWith('corners_')) return 'corners';
-  if (market.startsWith('cards_'))   return 'cards';
-  if (market.startsWith('fouls_'))   return 'fouls';
-  if (market.startsWith('dc_'))      return 'double_chance';
-  return market;
-}
+// (normalizeMarketGroup is defined above near the learning helpers.)
 function normalizeMarketLabel(market: string, fallback: string): string {
   const g = normalizeMarketGroup(market);
   switch (g) {
