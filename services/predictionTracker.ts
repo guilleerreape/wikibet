@@ -10,11 +10,12 @@ export type Outcome = 'local' | 'empate' | 'visitante';
 
 // ─── Dynamic prediction item ──────────────────────────────────────────────────
 export interface PredItem {
-  market: string;   // 'over0_5' | 'over1_5' | 'over2_5' | 'under2_5' | 'over3_5' | 'under3_5' | 'btts' | 'btts_no' | '1x2'
+  market: string;   // 'over0_5' | 'over2_5' | 'corners_over8_5' | 'cards_over3_5' | 'fouls_over20_5' | 'btts' | '1x2' | 'dc_1x' | 'scorer' ...
   label:  string;   // Human-readable
   emoji:  string;   // Display emoji
   prob?:  number;   // AI confidence % (e.g. 87)
-  value?: string;   // For 1x2: 'local'|'empate'|'visitante'
+  cuota?: number;   // Real market odds for this bet
+  value?: string;   // For 1x2: 'local'|'empate'|'visitante'. For scorer: player name
   hit?:   boolean;  // Set after verification
 }
 
@@ -162,95 +163,205 @@ export function buildConfidentPredictions(predicciones: any): PredItem[] {
   return preds;
 }
 
-// ─── Real match stats (from ESPN summary API) ─────────────────────────────────
+// ─── Build verifiable predictions from the AI's own recommended bets ──────────
+// Reads analysis.apuestasRecomendadas (varied + reasoned per match, with real odds)
+// and parses each into a verifiable PredItem. This makes the AI bet panel DYNAMIC
+// per match instead of always emitting the same generic markets.
+export function buildDynamicPredictions(analysis: any, homeTeam: string, awayTeam: string): PredItem[] {
+  const apuestas: any[] = analysis?.apuestasRecomendadas ?? [];
+  const out: PredItem[] = [];
+  const seen = new Set<string>();
+
+  const push = (item: PredItem) => {
+    if (seen.has(item.market)) return;
+    seen.add(item.market);
+    out.push(item);
+  };
+
+  // Always include the headline 1X2 from computed probabilities
+  const probs = analysis?.predicciones?.probabilidades;
+  if (probs) {
+    const pL = probs.victoriaLocal ?? 0, pD = probs.empate ?? 0, pA = probs.victoriaVisitante ?? 0;
+    const outcome: Outcome = pL >= pD && pL >= pA ? 'local' : pD >= pL && pD >= pA ? 'empate' : 'visitante';
+    push({
+      market: '1x2', emoji: '🏆',
+      label: outcome === 'local' ? `Victoria ${homeTeam}` : outcome === 'empate' ? 'Empate' : `Victoria ${awayTeam}`,
+      value: outcome, prob: Math.round(Math.max(pL, pD, pA)),
+      cuota: analysis?.predicciones?.cuotasTeoricas?.[outcome === 'local' ? 'victoriaLocal' : outcome === 'empate' ? 'empate' : 'victoriaVisitante'],
+    });
+  }
+
+  for (const a of apuestas) {
+    const parsed = parseBetToPredItem(a, homeTeam, awayTeam);
+    if (parsed) push(parsed);
+  }
+
+  // If the AI gave us almost nothing parseable, fall back to structured markets
+  if (out.length < 4 && analysis?.predicciones) {
+    for (const p of buildConfidentPredictions(analysis.predicciones)) push(p);
+  }
+  return out;
+}
+
+// Parse a single AI bet ({mercado, seleccion, cuota, probabilidad}) into a PredItem.
+export function parseBetToPredItem(a: any, homeTeam: string, awayTeam: string): PredItem | null {
+  const txt = `${a?.mercado ?? ''} ${a?.seleccion ?? ''}`.toLowerCase().trim();
+  if (!txt) return null;
+  const cuota = typeof a?.cuota === 'number' ? a.cuota : undefined;
+  const prob  = typeof a?.probabilidad === 'number' ? Math.round(a.probabilidad) : undefined;
+  const hL = homeTeam.toLowerCase(), aL = awayTeam.toLowerCase();
+
+  // Extract a "N.5" line if present
+  const lineMatch = txt.match(/(\d+)[.,](\d+)/);
+  const lineKey = lineMatch ? `${lineMatch[1]}_${lineMatch[2]}` : null;
+  const lineLabel = lineMatch ? `${lineMatch[1]}.${lineMatch[2]}` : '';
+  const isUnder = /under|menos|<|por debajo/.test(txt);
+  const side = isUnder ? 'under' : 'over';
+  const sideLabel = isUnder ? 'Menos de' : 'Más de';
+
+  const base = (market: string, label: string, emoji: string): PredItem => ({ market, label, emoji, prob, cuota });
+
+  // ── Córners ──
+  if (/c[óo]rner/.test(txt)) {
+    if (!lineKey) return null;
+    return base(`corners_${side}${lineKey}`, `${sideLabel} ${lineLabel} córners`, '🚩');
+  }
+  // ── Tarjetas ──
+  if (/tarjeta/.test(txt)) {
+    if (!lineKey) return null;
+    return base(`cards_${side}${lineKey}`, `${sideLabel} ${lineLabel} tarjetas`, '🟨');
+  }
+  // ── Faltas ──
+  if (/falta/.test(txt)) {
+    if (!lineKey) return null;
+    return base(`fouls_${side}${lineKey}`, `${sideLabel} ${lineLabel} faltas`, '⚠️');
+  }
+  // ── BTTS / Ambos marcan ──
+  if (/ambos\s+marcan|btts|ambos\s+equipos/.test(txt)) {
+    const no = /\bno\b/.test(txt);
+    return base(no ? 'btts_no' : 'btts', no ? 'No marcan los dos' : 'Ambos equipos marcan', no ? '🚫' : '🎯');
+  }
+  // ── Goles over/under ──
+  if (/gol/.test(txt) && lineKey) {
+    const emoji = side === 'over' ? (parseFloat(lineLabel) >= 3 ? '🚀' : '💥') : '🛡️';
+    return base(`${side}${lineKey}`, `${sideLabel} ${lineLabel} goles`, emoji);
+  }
+  // ── Doble oportunidad ── (strip the "1X2" market token first so it isn't confused)
+  const txtDC = txt.replace(/1\s*[x×]\s*2/g, ' ');
+  if (/doble\s*opor|doble\b/.test(txt) || /\b1x\b|\bx2\b|\b12\b/.test(txtDC)) {
+    if (/1x|local.*empate|empate.*local/.test(txtDC)) return base('dc_1x', `Doble: ${homeTeam} o Empate`, '🛡️');
+    if (/x2|visitante.*empate|empate.*visitante/.test(txtDC)) return base('dc_x2', `Doble: Empate o ${awayTeam}`, '🛡️');
+    if (/\b12\b/.test(txtDC)) return base('dc_12', 'Doble: Local o Visitante', '🛡️');
+  }
+  // ── Goleador ──
+  if (/goleador|marca(r)?\b|anytime|primer gol/.test(txt)) {
+    // Player name usually in seleccion before keywords
+    const sel = (a?.seleccion ?? '').trim();
+    const name = sel.replace(/goleador|anytime|primer|marca(r)?|gol|en cualquier momento|\(.*\)/gi, '').trim();
+    if (name.length >= 3) return { market: 'scorer', label: `${name} marca`, emoji: '🥅', value: name, prob, cuota };
+    return null;
+  }
+  // ── 1X2 / Victoria ──
+  if (/victoria|gana|1x2|resultado/.test(txt)) {
+    if (txt.includes(hL) || /local/.test(txt)) return { market: '1x2', label: `Victoria ${homeTeam}`, emoji: '🏆', value: 'local', prob, cuota };
+    if (txt.includes(aL) || /visitante/.test(txt)) return { market: '1x2', label: `Victoria ${awayTeam}`, emoji: '🏆', value: 'visitante', prob, cuota };
+    if (/empate/.test(txt)) return { market: '1x2', label: 'Empate', emoji: '🏆', value: 'empate', prob, cuota };
+  }
+  return null;
+}
+
+// ─── Real match stats (from ESPN / TheSportsDB) ───────────────────────────────
 export interface LiveMatchStats {
-  corners:    number;  // total corners
-  yellowCards:number;  // total yellow cards
-  redCards:   number;  // total red cards (each counts as 1 for betting total)
-  fouls:      number;  // total fouls
+  corners?:     number;  // total corners
+  yellowCards?: number;  // total yellow cards
+  redCards?:    number;  // total red cards (each counts as 1 for betting total)
+  fouls?:       number;  // total fouls
+  // Optional list of scorer names (lowercased) to verify goalscorer markets
+  scorers?:     string[];
   // totalCards = yellowCards + redCards
 }
 
-// ─── Verify predictions against actual score ──────────────────────────────────
+// Returns hit (true/false) or undefined when the market cannot be verified yet.
+// ctx carries the score plus any real stats that are available.
+function verifyMarket(p: PredItem, ctx: {
+  hs: number; as_: number; stats?: LiveMatchStats;
+}): boolean | undefined {
+  const { hs, as_, stats } = ctx;
+  const total      = hs + as_;
+  const actual1x2  = outcomeFromScore(hs, as_);
+  const corners    = stats?.corners;
+  const fouls      = stats?.fouls;
+  const totalCards = (stats?.yellowCards != null || stats?.redCards != null)
+    ? (stats?.yellowCards ?? 0) + (stats?.redCards ?? 0)
+    : undefined;
+
+  // Parameterized line parsing: "corners_over8_5" → { side:'over', line:8.5 }
+  const parseLine = (market: string, prefix: string): { side: 'over' | 'under'; line: number } | null => {
+    const m = market.match(new RegExp(`^${prefix}_(over|under)(\\d+)_(\\d+)$`));
+    if (!m) return null;
+    return { side: m[1] as 'over' | 'under', line: parseFloat(`${m[2]}.${m[3]}`) };
+  };
+  const cmp = (value: number | undefined, side: 'over' | 'under', line: number): boolean | undefined => {
+    if (value == null) return undefined;
+    return side === 'over' ? value > line : value < line;
+  };
+
+  // Goals over/under (generic): goals_over2_5 / over2_5 / under2_5
+  const goalsLine = parseLine(p.market, 'goals') || (() => {
+    const m = p.market.match(/^(over|under)(\d+)_(\d+)$/);
+    return m ? { side: m[1] as 'over' | 'under', line: parseFloat(`${m[2]}.${m[3]}`) } : null;
+  })();
+  if (goalsLine) return cmp(total, goalsLine.side, goalsLine.line);
+
+  // Corners
+  const cLine = parseLine(p.market, 'corners');
+  if (cLine) return cmp(corners, cLine.side, cLine.line);
+
+  // Cards (red counts as a card)
+  const kLine = parseLine(p.market, 'cards');
+  if (kLine) return cmp(totalCards, kLine.side, kLine.line);
+
+  // Fouls
+  const fLine = parseLine(p.market, 'fouls');
+  if (fLine) return cmp(fouls, fLine.side, fLine.line);
+
+  switch (p.market) {
+    case '1x2':     return p.value === actual1x2;
+    case 'btts':    return hs > 0 && as_ > 0;
+    case 'btts_no': return !(hs > 0 && as_ > 0);
+    // Double chance
+    case 'dc_1x':   return actual1x2 === 'local' || actual1x2 === 'empate';
+    case 'dc_x2':   return actual1x2 === 'visitante' || actual1x2 === 'empate';
+    case 'dc_12':   return actual1x2 === 'local' || actual1x2 === 'visitante';
+    // Goalscorer — needs scorer list
+    case 'scorer':
+      if (!stats?.scorers) return undefined;
+      return p.value ? stats.scorers.some(s => s.includes(p.value!.toLowerCase()) || p.value!.toLowerCase().includes(s)) : undefined;
+    // Half-time specific — cannot verify from final score
+    case 'local_score_1H':
+    case 'away_score_1H':
+      return undefined;
+    default:
+      return undefined;  // unknown / not yet verifiable → never count as wrong
+  }
+}
+
+// ─── Verify predictions against actual score (no extra stats) ─────────────────
+// Score-only markets get true/false; stats-only markets (corners/cards/fouls)
+// stay undefined so they're never counted as wrong without real data.
 export function verifyPredictions(preds: PredItem[], hs: number, as_: number): PredItem[] {
-  const total     = hs + as_;
-  const actual1x2 = outcomeFromScore(hs, as_);
-  return preds.map(p => {
-    let hit: boolean | undefined;
-    switch (p.market) {
-      case '1x2':     hit = p.value === actual1x2; break;
-      case 'over0_5': hit = total > 0; break;
-      case 'over1_5': hit = total > 1; break;
-      case 'over2_5': hit = total > 2; break;
-      case 'under2_5':hit = total < 3; break;
-      case 'over3_5': hit = total > 3; break;
-      case 'under3_5':hit = total < 4; break;
-      case 'under1_5':hit = total < 2; break;
-      case 'btts':    hit = hs > 0 && as_ > 0; break;
-      case 'btts_no': hit = !(hs > 0 && as_ > 0); break;
-      // Markets that require real stats data (corners, cards, fouls, 1H-specific):
-      // These CANNOT be verified from just the final score.
-      // Return hit=undefined so they are EXCLUDED from accuracy % computation.
-      case 'corners_over8_5':
-      case 'corners_under8_5':
-      case 'corners_over9_5':
-      case 'cards_over2_5':
-      case 'cards_over3_5':
-      case 'cards_under3_5':
-      case 'local_score_1H':
-      case 'away_score_1H':
-      case 'fouls_over20_5':
-        return { ...p, hit: undefined }; // skip in accuracy until real stats available
-      default:        hit = false;
-    }
-    return { ...p, hit };
-  });
+  return preds.map(p => ({ ...p, hit: verifyMarket(p, { hs, as_ }) }));
 }
 
 // ─── Verify predictions with real match stats (corners, cards, fouls) ────────
-// Call this instead of verifyPredictions when ESPN stats are available.
-// Falls back gracefully for any market where stats are unavailable.
+// Call this when ESPN/TheSportsDB stats are available. Red cards count as cards.
 export function verifyPredictionsWithStats(
   preds: PredItem[],
   hs: number,
   as_: number,
   stats: LiveMatchStats
 ): PredItem[] {
-  const total     = hs + as_;
-  const actual1x2 = outcomeFromScore(hs, as_);
-  const totalCards = stats.yellowCards + stats.redCards; // each red = 1 card
-
-  return preds.map(p => {
-    let hit: boolean | undefined;
-    switch (p.market) {
-      case '1x2':            hit = p.value === actual1x2; break;
-      case 'over0_5':        hit = total > 0; break;
-      case 'over1_5':        hit = total > 1; break;
-      case 'over2_5':        hit = total > 2; break;
-      case 'under2_5':       hit = total < 3; break;
-      case 'over3_5':        hit = total > 3; break;
-      case 'under3_5':       hit = total < 4; break;
-      case 'under1_5':       hit = total < 2; break;
-      case 'btts':           hit = hs > 0 && as_ > 0; break;
-      case 'btts_no':        hit = !(hs > 0 && as_ > 0); break;
-      // Corners — now verifiable with real stats
-      case 'corners_over8_5':  hit = stats.corners > 8; break;
-      case 'corners_under8_5': hit = stats.corners <= 8; break;
-      case 'corners_over9_5':  hit = stats.corners > 9; break;
-      // Cards — yellows + reds count for total (red card = 1 card for betting)
-      case 'cards_over2_5':   hit = totalCards > 2; break;
-      case 'cards_over3_5':   hit = totalCards > 3; break;
-      case 'cards_under3_5':  hit = totalCards <= 3; break;
-      // Fouls
-      case 'fouls_over20_5':  hit = stats.fouls > 20; break;
-      // 1H markets: still can't verify without 1H-specific data
-      case 'local_score_1H':
-      case 'away_score_1H':
-        return { ...p, hit: undefined };
-      default: hit = false;
-    }
-    return { ...p, hit };
-  });
+  return preds.map(p => ({ ...p, hit: verifyMarket(p, { hs, as_, stats }) }));
 }
 
 // ─── National team ratings for WC 2026 seeding ───────────────────────────────
@@ -295,6 +406,11 @@ function predictMatchSeed(homeTeam: string, awayTeam: string) {
   const btts    = Math.round(Math.min(85, Math.max(15, hxg * axg * 80)));
   const bttsNo  = 100 - btts;
 
+  // Estimated corners / cards / fouls (so these markets are tracked too)
+  const totalCorners = Math.round(8 + exp * 1.6);            // ~9-12
+  const totalCards   = 3 + Math.round((10 - (pH + pA) * 5)); // tighter games → more cards
+  const totalFouls   = Math.round(20 + (1 - Math.abs(pH - pA)) * 6);
+
   return {
     outcome: outcomeFromProbs(pH*100, pD*100, pA*100),
     predicciones: {
@@ -313,6 +429,19 @@ function predictMatchSeed(homeTeam: string, awayTeam: string) {
         over1_5: over15, over2_5: over25, over3_5: over35,
         under2_5: 100 - over25,
         btts_si: btts, btts_no: bttsNo,
+      },
+      corners: {
+        over8_5:  totalCorners >= 9  ? 64 : 45,
+        under8_5: totalCorners >= 9  ? 36 : 55,
+        over9_5:  totalCorners >= 10 ? 58 : 38,
+      },
+      tarjetas: {
+        over2_5:  totalCards >= 3 ? 66 : 45,
+        over3_5:  totalCards >= 4 ? 56 : 35,
+        under3_5: totalCards <  4 ? 60 : 40,
+      },
+      faltas: {
+        over20_5: totalFouls >= 21 ? 64 : 42,
       },
     },
   };
@@ -401,21 +530,24 @@ export async function savePrediction(
 }
 
 // ─── Record actual result + verify predictions_json ───────────────────────────
+// Pass real match stats (corners/cards/fouls) to verify ALL markets correctly.
 export async function updateActualResult(
-  matchId: string, homeScore: number, awayScore: number
+  matchId: string, homeScore: number, awayScore: number, stats?: LiveMatchStats
 ): Promise<void> {
   try {
     const { data } = await supabase
       .from('match_predictions')
       .select('predicted_outcome,actual_outcome,predictions_json')
       .eq('match_id', matchId).maybeSingle();
-    if (!data || data.actual_outcome) return;
+    if (!data) return;
+    // Re-verify even if already finished, so newly-available stats upgrade old rows.
 
     const actual   = outcomeFromScore(homeScore, awayScore);
     const total    = homeScore + awayScore;
     const rawPreds: PredItem[] = data.predictions_json ?? [];
     const verified = rawPreds.length > 0
-      ? verifyPredictions(rawPreds, homeScore, awayScore)
+      ? (stats ? verifyPredictionsWithStats(rawPreds, homeScore, awayScore, stats)
+               : verifyPredictions(rawPreds, homeScore, awayScore))
       : [];
 
     await supabase.from('match_predictions').update({
@@ -427,6 +559,65 @@ export async function updateActualResult(
       predictions_json:   verified,
     }).eq('match_id', matchId);
   } catch { /* silent */ }
+}
+
+// ─── Re-verify ALL finished matches with freshly-fetched real stats ───────────
+// statsFetcher resolves corners/cards/fouls for a match; pass from the UI layer
+// (which has access to ESPN + TheSportsDB) to avoid circular imports here.
+export async function reVerifyAllMatches(
+  statsFetcher?: (matchId: string, home: string, away: string) => Promise<LiveMatchStats | null>
+): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from('match_predictions')
+      .select('match_id,home_team,away_team,home_score,away_score,predicted_outcome,predictions_json')
+      .not('actual_outcome', 'is', null);
+    if (!data || data.length === 0) return 0;
+
+    let updated = 0;
+    for (const row of data) {
+      const hs = row.home_score, as_ = row.away_score;
+      if (hs == null || as_ == null) continue;
+      const rawPreds: PredItem[] = row.predictions_json ?? [];
+      if (rawPreds.length === 0) continue;
+
+      let stats: LiveMatchStats | null = null;
+      if (statsFetcher) {
+        try { stats = await statsFetcher(row.match_id, row.home_team, row.away_team); } catch {}
+      }
+      const verified = stats
+        ? verifyPredictionsWithStats(rawPreds, hs, as_, stats)
+        : verifyPredictions(rawPreds, hs, as_);
+
+      await supabase.from('match_predictions').update({
+        is_correct:       row.predicted_outcome === outcomeFromScore(hs, as_),
+        predictions_json: verified,
+      }).eq('match_id', row.match_id);
+      updated++;
+    }
+    return updated;
+  } catch { return 0; }
+}
+
+// Group parameterized markets into clean categories for the accuracy table.
+// All corner lines → "corners", all card lines → "cards", etc. Goals stay per-line.
+function normalizeMarketGroup(market: string): string {
+  if (market.startsWith('corners_')) return 'corners';
+  if (market.startsWith('cards_'))   return 'cards';
+  if (market.startsWith('fouls_'))   return 'fouls';
+  if (market.startsWith('dc_'))      return 'double_chance';
+  return market;
+}
+function normalizeMarketLabel(market: string, fallback: string): string {
+  const g = normalizeMarketGroup(market);
+  switch (g) {
+    case 'corners':       return 'Córners (todas las líneas)';
+    case 'cards':         return 'Tarjetas (incl. rojas)';
+    case 'fouls':         return 'Faltas';
+    case 'double_chance': return 'Doble oportunidad';
+    case 'scorer':        return 'Goleador';
+    default:              return fallback;
+  }
 }
 
 // ─── Full accuracy stats ──────────────────────────────────────────────────────
@@ -461,12 +652,13 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
       if (preds.length > 0) {
         // ── New system: read from predictions_json ──
         for (const p of preds) {
+          // Only skip when we genuinely have no result yet (hit undefined/null).
+          // Corners/cards/fouls NOW count whenever real stats verified them.
           if (p.hit === undefined || p.hit === null) continue;
-          if (UNVERIFIABLE_MARKETS.has(p.market)) continue; // skip unverifiable
           const label =
             p.market === '1x2' ? 'Resultado 1X2' :
-            p.label;
-          addMkt(p.market, label, p.emoji, p.hit === true);
+            normalizeMarketLabel(p.market, p.label);
+          addMkt(normalizeMarketGroup(p.market), label, p.emoji, p.hit === true);
 
           // 1X2 sub-breakdown
           if (p.market === '1x2' && p.value) {
@@ -531,14 +723,6 @@ export async function getAccuracyStats(): Promise<AccuracyStats | null> {
 }
 
 // ─── Quick composite % for button badge ──────────────────────────────────────
-// Markets that require live stats (corners, cards, fouls) — excluded from accuracy %
-// until real-time stats verification is available from ESPN API
-const UNVERIFIABLE_MARKETS = new Set([
-  'corners_over8_5', 'corners_under8_5', 'corners_over9_5',
-  'cards_over2_5', 'cards_over3_5', 'cards_under3_5',
-  'local_score_1H', 'away_score_1H', 'fouls_over20_5',
-]);
-
 export async function getQuickStats(): Promise<{ pct: number; total: number } | null> {
   try {
     const { data } = await supabase
@@ -553,9 +737,9 @@ export async function getQuickStats(): Promise<{ pct: number; total: number } | 
       const preds: PredItem[] = (r as any).predictions_json ?? [];
       if (preds.length > 0) {
         for (const p of preds) {
-          // Skip unverifiable markets AND any that have no hit value
+          // Skip only when there's no result yet. Corners/cards/fouls count
+          // once real stats have verified them (hit is a boolean).
           if (p.hit === undefined || p.hit === null) continue;
-          if (UNVERIFIABLE_MARKETS.has(p.market)) continue;
           total++;
           if (p.hit === true) correct++;
         }

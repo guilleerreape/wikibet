@@ -23,7 +23,7 @@ import MatchEventsPanel from '@/components/MatchEventsPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import QuickBetModal, { QuickBetData } from '@/components/QuickBetModal';
 import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal';
-import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, verifyPredictions } from '@/services/predictionTracker';
+import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, buildDynamicPredictions, verifyPredictions, verifyPredictionsWithStats, LiveMatchStats } from '@/services/predictionTracker';
 import { diffAndLogAnalysis } from '@/services/predictionChangeLog';
 import { sportsDbService } from '@/services/sportsDbService';
 import { getWcSquad } from '@/services/wcSquads';
@@ -31,6 +31,56 @@ import { getVenueWeather } from '@/services/weatherService';
 
 // ─── Emojis de selecciones ────────────────────────────────────────────────────
 const CLAUDE_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+
+// ─── Combined real match stats (ESPN + TheSportsDB + live events) ─────────────
+// Cards always come from the events array (reliable). Corners/fouls come from the
+// stats endpoints when available. Used to verify corners/cards/fouls correctly.
+async function fetchCombinedStats(
+  match: CompetitionMatch,
+  events: MatchEvent[],
+): Promise<LiveMatchStats> {
+  // Cards from events (red counts as a card for betting)
+  let yellow = events.filter(e => e.type === 'yellow').length;
+  let red    = events.filter(e => e.type === 'red').length;
+  const scorers = events
+    .filter(e => e.type === 'goal' || e.type === 'penalty')
+    .map(e => (e.player ?? '').toLowerCase())
+    .filter(Boolean);
+  let corners: number | undefined;
+  let fouls:   number | undefined;
+
+  const slug = (match.leagueId || 'FIFA.WORLD').toLowerCase();
+
+  // ESPN summary stats (works when match.id is an ESPN event id)
+  try {
+    const espn = await espnMatchService.getMatchStats(match.id, slug);
+    if (espn) {
+      if (espn.corners.total > 0) corners = espn.corners.total;
+      if (espn.fouls.total   > 0) fouls   = espn.fouls.total;
+      yellow = Math.max(yellow, espn.yellowCards.total);
+      red    = Math.max(red, espn.redCards.total);
+    }
+  } catch {}
+
+  // TheSportsDB stats (works for mapped / searchable matches)
+  try {
+    const sdb = await sportsDbService.getMatchStats(match.id, match.homeTeam, match.awayTeam);
+    if (sdb?.hasData) {
+      if (corners == null && sdb.corners.total > 0) corners = sdb.corners.total;
+      if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
+      yellow = Math.max(yellow, sdb.yellowCards.total);
+      red    = Math.max(red, sdb.redCards.total);
+    }
+  } catch {}
+
+  return {
+    corners,
+    fouls,
+    yellowCards: yellow,
+    redCards:    red,
+    scorers,
+  };
+}
 
 // ─── Título animado "COMENTARIO IA" ──────────────────────────────────────────
 function AnimatedCommentTitle() {
@@ -200,10 +250,11 @@ class AnalysisErrorBoundary extends Component<
 }
 
 // ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
-function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
+function AiBetPanel({ match, analysis, matchEvents: evts = [], matchStats }: {
   match: CompetitionMatch;
   analysis: AdvancedMatchAnalysis;
   matchEvents?: MatchEvent[];
+  matchStats?: LiveMatchStats | null;
 }) {
   if (!analysis?.predicciones) return null;
   const isFinished = match.status === 'finished';
@@ -211,44 +262,54 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
   const hg = match.homeScore ?? 0;
   const ag = match.awayScore ?? 0;
 
-  // ─── Live stats from events array (goals from match score, cards from events) ─
-  const liveGoals    = hg + ag;
-  const liveYellows  = evts.filter(e => e.type === 'yellow').length;
-  const liveReds     = evts.filter(e => e.type === 'red').length;
-  const liveTotalCards = liveYellows + liveReds;
+  // ─── Live stats: cards/scorers from events, corners/fouls from fetched stats ─
+  const liveGoals   = hg + ag;
+  const liveYellows = Math.max(evts.filter(e => e.type === 'yellow').length, matchStats?.yellowCards ?? 0);
+  const liveReds    = Math.max(evts.filter(e => e.type === 'red').length, matchStats?.redCards ?? 0);
+  const liveCards   = liveYellows + liveReds;
+  const liveCorners = matchStats?.corners;
+  const liveFouls   = matchStats?.fouls;
+  const liveScorers = (matchStats?.scorers && matchStats.scorers.length > 0)
+    ? matchStats.scorers
+    : evts.filter(e => e.type === 'goal' || e.type === 'penalty').map(e => (e.player ?? '').toLowerCase()).filter(Boolean);
 
-  // Returns a small contextual text showing current state of a market
-  const getLiveProgress = (market: string): string | null => {
-    if (!isLive && !isFinished) return null;
-    const g = liveGoals;
-    const c = liveTotalCards;
-    switch (market) {
-      case 'over0_5':
-      case 'under1_5':      return `Actualmente ${g} gol${g !== 1 ? 'es' : ''}`;
-      case 'over1_5':
-      case 'over2_5':
-      case 'under2_5':
-      case 'over3_5':
-      case 'under3_5':      return `${g} gol${g !== 1 ? 'es' : ''} marcados`;
-      case 'btts':          return `Local ${hg} · Visit. ${ag}`;
-      case 'btts_no':       return `Local ${hg} · Visit. ${ag}`;
-      case 'cards_over2_5':
-      case 'cards_over3_5':
-      case 'cards_under3_5': return c > 0
-          ? `Actualmente ${c} tarjeta${c !== 1 ? 's' : ''} (${liveYellows}🟨${liveReds > 0 ? ` ${liveReds}🟥` : ''})`
-          : `Sin tarjetas aún`;
-      default: return null;
-    }
+  // Stats object used for verification (cards always available from events)
+  const vStats: LiveMatchStats = {
+    corners:     liveCorners,
+    fouls:       liveFouls,
+    yellowCards: liveYellows,
+    redCards:    liveReds,
+    scorers:     liveScorers,
   };
 
-  const preds    = buildConfidentPredictions(analysis.predicciones);
+  // Contextual "how is this bet going" text for live/finished matches
+  const getLiveProgress = (p: typeof verified[number]): string | null => {
+    if (!isLive && !isFinished) return null;
+    const m = p.market;
+    if (m.startsWith('corners_')) return liveCorners != null ? `Actualmente ${liveCorners} córners` : '⏳ Córners: pendiente de datos';
+    if (m.startsWith('cards_'))   return `Actualmente ${liveCards} tarjeta${liveCards !== 1 ? 's' : ''} (${liveYellows}🟨${liveReds > 0 ? ` ${liveReds}🟥` : ''})`;
+    if (m.startsWith('fouls_'))   return liveFouls != null ? `Actualmente ${liveFouls} faltas` : '⏳ Faltas: pendiente de datos';
+    if (/^(over|under)\d/.test(m)) return `${liveGoals} gol${liveGoals !== 1 ? 'es' : ''} marcados`;
+    if (m === 'btts' || m === 'btts_no') return `Local ${hg} · Visitante ${ag}`;
+    if (m === '1x2' || m.startsWith('dc_')) return `Resultado actual: ${hg}-${ag}`;
+    if (m === 'scorer') {
+      const scored = p.value && liveScorers.some(s => s.includes(p.value!.toLowerCase()) || p.value!.toLowerCase().includes(s));
+      return scored ? '✓ Ha marcado' : 'Aún no marca';
+    }
+    return null;
+  };
+
+  // Build DYNAMIC bets from the AI's own recommendations (varied per match, real odds)
+  const preds    = buildDynamicPredictions(analysis, match.homeTeam, match.awayTeam);
   const verified = (isFinished || isLive)
-    ? verifyPredictions(preds, hg, ag)
+    ? verifyPredictionsWithStats(preds, hg, ag, vStats)
     : preds;
 
-  const correct = verified.filter(p => p.hit === true).length;
+  // Hit % counts only DECIDED bets (a bet pending real data is never "wrong")
+  const decided = verified.filter(p => p.hit !== undefined);
+  const correct = decided.filter(p => p.hit === true).length;
   const total   = verified.length;
-  const hitPct  = total > 0 ? Math.round((correct / total) * 100) : null;
+  const hitPct  = decided.length > 0 ? Math.round((correct / decided.length) * 100) : null;
 
   const headerAccent = isFinished
     ? (hitPct !== null && hitPct >= 65 ? '#22c55e' : '#f59e0b')
@@ -280,10 +341,10 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
           <Text style={[aib.headerTitle, { color: headerAccent }]}>🤖 APUESTA DE LA IA</Text>
           <Text style={aib.headerSub}>
             {isFinished
-              ? `Resultado: ${correct}/${total} pronósticos acertados`
+              ? `Resultado: ${correct}/${decided.length} acertados${decided.length < total ? ` · ${total - decided.length} pendiente(s)` : ''}`
               : isLive
-              ? `En directo · ${total} pronósticos activos`
-              : `${total} pronósticos con alta confianza`}
+              ? `En directo · ${correct}/${decided.length || total} ✓ · ${total} apuestas IA`
+              : `${total} apuestas generadas por IA para este partido`}
           </Text>
         </View>
         {isFinished && hitPct !== null && (
@@ -300,16 +361,19 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
 
       {/* Prediction rows */}
       {verified.map((p, i) => {
-        const liveProgress = getLiveProgress(p.market);
+        const liveProgress = getLiveProgress(p);
         return (
-        <View key={p.market} style={[aib.predRow, i < verified.length - 1 && aib.predBorder]}>
+        <View key={`${p.market}-${i}`} style={[aib.predRow, i < verified.length - 1 && aib.predBorder]}>
           <Text style={aib.predEmoji}>{p.emoji}</Text>
           <View style={aib.predInfo}>
-            <Text style={[aib.predLabel, (isFinished || isLive) && p.hit !== undefined && {
-              color: p.hit ? '#e5e7eb' : '#6b7280',
-            }]}>
-              {p.label}
-            </Text>
+            <View style={aib.predLabelRow}>
+              <Text style={[aib.predLabel, (isFinished || isLive) && p.hit !== undefined && {
+                color: p.hit ? '#e5e7eb' : '#6b7280',
+              }]} numberOfLines={1}>
+                {p.label}
+              </Text>
+              {p.cuota ? <Text style={aib.cuotaTag}>@{p.cuota.toFixed(2)}</Text> : null}
+            </View>
             {liveProgress && (
               <Text style={aib.liveProgress}>{liveProgress}</Text>
             )}
@@ -334,8 +398,10 @@ function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
       <View style={aib.footer}>
         <Text style={aib.footerText}>
           {isFinished
-            ? `📊 Análisis post-partido · Se registra en % Aciertos IA`
-            : `📌 La IA solo incluye los pronósticos en los que confía más del umbral`}
+            ? `📊 Verificado con estadísticas reales (córners, tarjetas, faltas) · Cuenta en % Aciertos IA`
+            : isLive
+            ? `🔴 En directo · se actualiza con cada gol, tarjeta y córner`
+            : `📌 Apuestas generadas por IA con cuotas reales y análisis de mercado`}
         </Text>
       </View>
     </View>
@@ -366,7 +432,9 @@ const aib = StyleSheet.create({
   predBorder: { borderBottomWidth: 1, borderBottomColor: '#0f1e2e' },
   predEmoji:  { fontSize: 16, width: 22 },
   predInfo:   { flex: 1, gap: 4 },
-  predLabel:  { fontSize: 12, fontWeight: '600', color: '#d1d5db' },
+  predLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  predLabel:  { fontSize: 12, fontWeight: '600', color: '#d1d5db', flexShrink: 1 },
+  cuotaTag:   { fontSize: 10, fontWeight: '800', color: colors.accent.gold, backgroundColor: colors.accent.gold + '18', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, overflow: 'hidden' },
   liveProgress: { fontSize: 10, color: '#6ee7b7', fontStyle: 'italic', marginTop: 1 },
   barBg: {
     height: 6, backgroundColor: '#1e293b', borderRadius: 3,
@@ -705,6 +773,7 @@ export default function MatchesScreen() {
   const [postMatchCommentLoading, setPostMatchCommentLoading] = useState(false);
   const [matchLineup, setMatchLineup] = useState<MatchLineup | null>(null);
   const [matchEvents, setMatchEvents] = useState<MatchEvent[]>([]);
+  const [matchStats, setMatchStats] = useState<LiveMatchStats | null>(null);
   const [estimatedEvents, setEstimatedEvents] = useState<MatchEvent[]>([]);
   // Store TheSportsDB context for squad fallback in lineup building
   const [sdbCtxRef, setSdbCtxRef] = useState<{ homeSquad: any[]; awaySquad: any[] } | null>(null);
@@ -800,11 +869,12 @@ export default function MatchesScreen() {
           // For live/finished matches, also fetch events to get goalscorers
           let homeScorers: { name: string; minute: number }[] = [];
           let awayScorers: { name: string; minute: number }[] = [];
+          let pollEvents: import('@/services/sportsDbService').SDBMatchEvent[] = [];
           try {
-            const events = await sportsDbService.getMatchEvents(
+            pollEvents = await sportsDbService.getMatchEvents(
               match.id, match.homeTeam, match.awayTeam
             );
-            const goals = events.filter(e => e.type === 'goal' || e.type === 'penalty');
+            const goals = pollEvents.filter(e => e.type === 'goal' || e.type === 'penalty');
             homeScorers = goals
               .filter(e => e.team === 'home')
               .map(e => ({ name: e.player, minute: e.minute }));
@@ -835,10 +905,14 @@ export default function MatchesScreen() {
 
           // Auto-verify predictions when match just finished (transition live → finished)
           if (liveData.status === 'finished') {
-            const prevStatus = prevScoresRef.current[match.id];
-            // Only run once on transition (prev was live, now finished)
-            if (prevStatus && liveData.homeScore != null && liveData.awayScore != null) {
-              updateActualResult(match.id, liveData.homeScore, liveData.awayScore).catch(() => {});
+            if (liveData.homeScore != null && liveData.awayScore != null) {
+              // Fetch real stats so córners/tarjetas/faltas are verified correctly
+              const evForStats: MatchEvent[] = pollEvents.map(e => ({
+                minute: e.minute, type: e.type, team: e.team, player: e.player, detail: e.detail,
+              }));
+              fetchCombinedStats(match, evForStats)
+                .then(st => updateActualResult(match.id, liveData.homeScore!, liveData.awayScore!, st))
+                .catch(() => updateActualResult(match.id, liveData.homeScore!, liveData.awayScore!).catch(() => {}));
             }
           }
 
@@ -1210,6 +1284,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     setPostMatchComment(null);
     setPostMatchCommentLoading(false);
     setMatchEvents([]);
+    setMatchStats(null);
     setEstimatedEvents([]);
     setSdbCtxRef(null);
     setLineupConfirmed(false);
@@ -1341,6 +1416,23 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
       });
     }
 
+    // ── GUARANTEE a probable XI for LIVE & UPCOMING matches ──────────────────────
+    // Even without an official lineup or AI yet, build a probable XI from squads
+    // (wcSquads + TheSportsDB) so the pitch always shows real names, not blanks.
+    if (match.status !== 'finished') {
+      setMatchLineup(prev => {
+        const realCount =
+          (prev?.homePlayers ?? []).filter(p => p.name && !p.name.startsWith('#')).length +
+          (prev?.awayPlayers ?? []).filter(p => p.name && !p.name.startsWith('#')).length;
+        if (realCount >= 18) return prev; // already have a solid lineup
+        const predicted = buildPredictedLineup(match.homeTeam, match.awayTeam, null, sdbContext);
+        const predReal =
+          predicted.homePlayers.filter(p => p.name && !p.name.startsWith('#')).length +
+          predicted.awayPlayers.filter(p => p.name && !p.name.startsWith('#')).length;
+        return predReal > realCount ? predicted : prev;
+      });
+    }
+
     // Apply real events from TheSportsDB
     // Normalize type to 'goal' for defensive safety — penalty/owngoal keep their own types
     // but add readable detail labels so icons are always unambiguous
@@ -1352,6 +1444,15 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         player: e.player,
         detail: e.type === 'penalty' ? (e.detail ?? 'Penalti') : e.type === 'owngoal' ? (e.detail ?? 'En propia') : e.detail,
       })));
+    }
+
+    // ── Fetch REAL match stats (córners/tarjetas/faltas) for live & finished ────
+    // Used to verify the AI bet panel correctly (red card counts as a card).
+    const evForStats: MatchEvent[] = sdbEvents.map(e => ({
+      minute: e.minute, type: e.type, team: e.team, player: e.player, detail: e.detail,
+    }));
+    if (match.status === 'live' || match.status === 'finished') {
+      fetchCombinedStats(match, evForStats).then(st => setMatchStats(st)).catch(() => {});
     }
 
     // ── AI Analysis: upgrades the local analysis already shown above ────────────
@@ -1392,13 +1493,17 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           const predicted = outcomeFromProbs(
             probs.victoriaLocal, probs.empate, probs.victoriaVisitante
           );
-          const preds = buildConfidentPredictions(result.predicciones);
+          // Store the AI's DYNAMIC bets (varied per match: incl. córners/tarjetas/faltas)
+          const preds = buildDynamicPredictions(result, match.homeTeam, match.awayTeam);
           savePrediction(match.id, match.league, match.homeTeam, match.awayTeam, match.date, predicted, preds);
           savePredTimestamp(match.id);
           if (match.status === 'finished' &&
-              match.homeScore !== undefined &&
-              match.awayScore !== undefined) {
-            updateActualResult(match.id, match.homeScore, match.awayScore);
+              match.homeScore != null &&
+              match.awayScore != null) {
+            // Verify with real stats so córners/tarjetas/faltas count correctly
+            const st = await fetchCombinedStats(match, evForStats);
+            setMatchStats(st);
+            updateActualResult(match.id, match.homeScore, match.awayScore, st);
           }
         }
       } catch { /* Supabase unavailable */ }
@@ -1492,6 +1597,67 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
     return adjusted;
   }
 
+  // ─── Full WC standings recompute from ALL finished + live matches ─────────────
+  // Counts PJ/G/E/P/GF/GA/GD/PTS from scratch using the group roster, so the table
+  // auto-updates with every finished jornada (not just live points adjustments).
+  function computeGroupStandings(
+    matchesArr: CompetitionMatch[],
+    liveMap: typeof liveScoresMap,
+  ): (StandingEntry & { liveAdjusted?: boolean })[] {
+    const norm = (s: string) => s.toLowerCase().trim();
+    const table: Record<string, StandingEntry & { liveAdjusted?: boolean }> = {};
+    const byNorm: Record<string, string> = {};
+
+    for (const letter of Object.keys(WC_GROUPS_STATIC)) {
+      for (const e of WC_GROUPS_STATIC[letter]) {
+        table[e.team] = { pos: 0, team: e.team, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, points: 0, group: letter };
+        byNorm[norm(e.team)] = e.team;
+      }
+    }
+    const findTeam = (name: string): string | null => {
+      const n = norm(name);
+      if (byNorm[n]) return byNorm[n];
+      for (const k of Object.keys(byNorm)) if (n.includes(k) || k.includes(n)) return byNorm[k];
+      return null;
+    };
+    const apply = (home: string, away: string, hs: number, as_: number, live: boolean) => {
+      const h = findTeam(home), a = findTeam(away);
+      if (!h || !a) return;
+      const H = table[h], A = table[a];
+      H.played++; A.played++;
+      H.gf += hs; H.ga += as_; A.gf += as_; A.ga += hs;
+      if (hs > as_)      { H.won++;   A.lost++;  H.points += 3; }
+      else if (hs < as_) { A.won++;   H.lost++;  A.points += 3; }
+      else               { H.drawn++; A.drawn++; H.points += 1; A.points += 1; }
+      if (live) { H.liveAdjusted = true; A.liveAdjusted = true; }
+    };
+
+    const processed = new Set<string>();
+    // Live + just-finished (this session) take priority
+    for (const [matchId, ld] of Object.entries(liveMap)) {
+      if (ld.status !== 'live' && ld.status !== 'finished') continue;
+      const m = matchesArr.find(x => x.id === matchId);
+      if (!m) continue;
+      apply(m.homeTeam, m.awayTeam, ld.homeScore ?? 0, ld.awayScore ?? 0, ld.status === 'live');
+      processed.add(matchId);
+      processed.add(`${norm(m.homeTeam)}|${norm(m.awayTeam)}`);
+    }
+    // Finished matches from the list (skip ones already counted via liveMap)
+    for (const m of matchesArr) {
+      if (m.status !== 'finished' || m.homeScore == null || m.awayScore == null) continue;
+      if (processed.has(m.id)) continue;
+      if (processed.has(`${norm(m.homeTeam)}|${norm(m.awayTeam)}`)) continue;
+      apply(m.homeTeam, m.awayTeam, m.homeScore, m.awayScore, false);
+    }
+
+    for (const k of Object.keys(table)) table[k].gd = table[k].gf - table[k].ga;
+
+    // If nothing played yet (data still loading) fall back to static J1 table
+    const anyPlayed = Object.values(table).some(t => t.played > 0);
+    if (!anyPlayed) return Object.values(WC_GROUPS_STATIC).flat().map(s => ({ ...s }));
+    return Object.values(table);
+  }
+
   const StandingsRow = ({ row, i }: { row: StandingEntry & { liveAdjusted?: boolean }; i: number }) => (
     <View style={[styles.standingsRow, i % 2 === 0 && styles.standingsRowAlt]}>
       <Text style={[styles.tdPos, i < 2 && { color: colors.accent.green }]}>{i + 1}</Text>
@@ -1538,14 +1704,16 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
 
     if (selectedComp.id === 'FIFA.WORLD') {
       const groupLetters = ['A','B','C','D','E','F','G','H','I','J','K','L'];
-      const byGroup: Record<string, StandingEntry[]> = {};
-      standings.forEach(s => {
+      // Recompute the WHOLE table from finished + live matches (auto-updates each jornada)
+      const computed = computeGroupStandings(matches, liveScoresMap);
+      const byGroup: Record<string, (StandingEntry & { liveAdjusted?: boolean })[]> = {};
+      computed.forEach(s => {
         const g = s.group || 'X';
         if (!byGroup[g]) byGroup[g] = [];
         byGroup[g].push(s);
       });
       groupLetters.forEach(g => {
-        if (!byGroup[g] || byGroup[g].length === 0) byGroup[g] = WC_GROUPS_STATIC[g] || [];
+        if (!byGroup[g] || byGroup[g].length === 0) byGroup[g] = (WC_GROUPS_STATIC[g] || []) as any;
       });
       return (
         <View style={styles.standingsBg}>
@@ -1553,9 +1721,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingVertical: 8 }}>
               {groupLetters.map(letter => {
-                const rawGroup = byGroup[letter] || [];
-                const adjustedGroup = applyLiveAdjustments(rawGroup, matches, liveScoresMap);
-                const groupTeams = adjustedGroup.sort((a, b) => {
+                const groupTeams = (byGroup[letter] || []).slice().sort((a, b) => {
                   if (b.points !== a.points) return b.points - a.points;
                   if (b.gd !== a.gd) return b.gd - a.gd;
                   return b.gf - a.gf;
@@ -2060,7 +2226,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* APUESTA DE LA IA — between Conclusion and 1X2 */}
-        <AiBetPanel match={selectedMatch} analysis={analysis} matchEvents={matchEvents} />
+        <AiBetPanel match={selectedMatch} analysis={analysis} matchEvents={matchEvents} matchStats={matchStats} />
 
         {/* 1X2 */}
         <Section icon="🎯" title="PROBABILIDADES 1X2" accent="#22c55e" delay={160}>

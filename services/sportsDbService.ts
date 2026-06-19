@@ -131,6 +131,18 @@ export interface SDBSquadPlayer {
   number?: number;
 }
 
+export interface SDBMatchStats {
+  corners:     { home: number; away: number; total: number };
+  yellowCards: { home: number; away: number; total: number };
+  redCards:    { home: number; away: number; total: number };
+  fouls:       { home: number; away: number; total: number };
+  shots:       { home: number; away: number; total: number };
+  shotsOnTarget: { home: number; away: number; total: number };
+  possession:  { home: number; away: number };
+  totalCards:  number;  // yellows + reds (each red = 1 card for betting)
+  hasData:     boolean; // false when no stats were found
+}
+
 export const sportsDbService = {
   getTeamId(teamName: string): string | null {
     return TEAM_IDS[teamName] ?? null;
@@ -362,5 +374,118 @@ export const sportsDbService = {
       this.getTeamRecentForm(awayTeam),
     ]);
     return { homeSquad, awaySquad, homeForm, awayForm };
+  },
+
+  // ─── Resolve a TheSportsDB event ID dynamically ──────────────────────────────
+  // Tries the static map first, then searches by team names + WC 2026 season.
+  async resolveEventId(staticMatchId: string, homeTeam?: string, awayTeam?: string): Promise<string | null> {
+    const mapped = WC_EVENT_IDS[staticMatchId];
+    if (mapped) return mapped;
+    // If the id is already numeric (came from ESPN/SDB), it can't be used for SDB stats reliably.
+    if (!homeTeam || !awayTeam) return null;
+    try {
+      // TheSportsDB free search: events by name "Home vs Away"
+      const q = encodeURIComponent(`${homeTeam} vs ${awayTeam}`);
+      const data = await fetchSDB<any>(`/searchevents.php?e=${q}`);
+      const events: any[] = data?.event ?? [];
+      // Prefer a 2026 World Cup event
+      const wc = events.find(e =>
+        (e.strSeason ?? '').includes('2026') ||
+        (e.strLeague ?? '').toLowerCase().includes('world cup')
+      );
+      const chosen = wc ?? events[0];
+      return chosen?.idEvent ?? null;
+    } catch {
+      return null;
+    }
+  },
+
+  // ─── Fetch real match statistics (corners, cards, fouls, shots, possession) ──
+  // Uses TheSportsDB lookupeventstats endpoint. Returns hasData=false if unavailable.
+  async getMatchStats(staticMatchId: string, homeTeam?: string, awayTeam?: string): Promise<SDBMatchStats | null> {
+    const eventId = await this.resolveEventId(staticMatchId, homeTeam, awayTeam);
+    if (!eventId) return null;
+
+    const empty = (): SDBMatchStats => ({
+      corners:       { home: 0, away: 0, total: 0 },
+      yellowCards:   { home: 0, away: 0, total: 0 },
+      redCards:      { home: 0, away: 0, total: 0 },
+      fouls:         { home: 0, away: 0, total: 0 },
+      shots:         { home: 0, away: 0, total: 0 },
+      shotsOnTarget: { home: 0, away: 0, total: 0 },
+      possession:    { home: 0, away: 0 },
+      totalCards:    0,
+      hasData:       false,
+    });
+
+    try {
+      const data = await fetchSDB<any>(`/lookupeventstats.php?id=${eventId}`);
+      const rows: any[] = data?.eventstats ?? [];
+      if (!rows.length) {
+        // Fallback: derive cards from the timeline (always has yellow/red events)
+        return await this.deriveStatsFromTimeline(eventId);
+      }
+
+      const result = empty();
+      const num = (v: any) => { const n = parseInt(String(v ?? '0').replace('%', ''), 10); return isNaN(n) ? 0 : n; };
+      const norm = (s: string) => (s ?? '').toLowerCase().trim();
+
+      for (const r of rows) {
+        const stat = norm(r.strStat);
+        const h = num(r.intHome), a = num(r.intAway);
+        if (stat.includes('corner'))                     { result.corners = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('yellow'))                { result.yellowCards = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('red'))                   { result.redCards = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('foul'))                  { result.fouls = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('shots on') || stat.includes('on goal') || stat.includes('on target')) { result.shotsOnTarget = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('total shots') || stat === 'shots') { result.shots = { home: h, away: a, total: h + a }; }
+        else if (stat.includes('possession'))            { result.possession = { home: h, away: a }; }
+      }
+
+      result.totalCards = result.yellowCards.total + result.redCards.total;
+      result.hasData = true;
+
+      // If stats endpoint had no cards, supplement from timeline
+      if (result.totalCards === 0) {
+        const tl = await this.deriveStatsFromTimeline(eventId);
+        if (tl && tl.totalCards > 0) {
+          result.yellowCards = tl.yellowCards;
+          result.redCards = tl.redCards;
+          result.totalCards = tl.totalCards;
+        }
+      }
+      return result;
+    } catch {
+      return empty();
+    }
+  },
+
+  // Derive card counts from the event timeline (yellow/red events) when stats table is empty.
+  async deriveStatsFromTimeline(eventId: string): Promise<SDBMatchStats | null> {
+    try {
+      const data = await fetchSDB<any>(`/lookuptimeline.php?id=${eventId}`);
+      const timeline: any[] = data?.timeline ?? [];
+      let hy = 0, ay = 0, hr = 0, ar = 0;
+      for (const t of timeline) {
+        if ((t.strTimeline ?? '').toLowerCase() !== 'card') continue;
+        const isHome = (t.strHome ?? 'No') === 'Yes';
+        const isRed = (t.strTimelineDetail ?? '').toLowerCase().includes('red');
+        if (isRed) { isHome ? hr++ : ar++; } else { isHome ? hy++ : ay++; }
+      }
+      const totalCards = hy + ay + hr + ar;
+      return {
+        corners:       { home: 0, away: 0, total: 0 },
+        yellowCards:   { home: hy, away: ay, total: hy + ay },
+        redCards:      { home: hr, away: ar, total: hr + ar },
+        fouls:         { home: 0, away: 0, total: 0 },
+        shots:         { home: 0, away: 0, total: 0 },
+        shotsOnTarget: { home: 0, away: 0, total: 0 },
+        possession:    { home: 0, away: 0 },
+        totalCards,
+        hasData:       totalCards > 0,
+      };
+    } catch {
+      return null;
+    }
   },
 };

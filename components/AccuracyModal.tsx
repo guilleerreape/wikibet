@@ -3,8 +3,34 @@ import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Animated, Pressable,
 } from 'react-native';
-import { getAccuracyStats, seedHistoricalData, AccuracyStats, MarketStat } from '../services/predictionTracker';
+import { getAccuracyStats, seedHistoricalData, reVerifyAllMatches, AccuracyStats, MarketStat, LiveMatchStats } from '../services/predictionTracker';
+import { espnMatchService } from '../services/espnMatchService';
+import { sportsDbService } from '../services/sportsDbService';
 import { colors } from '../constants/colors';
+
+// Resolve real corners/cards/fouls for a stored match (ESPN + TheSportsDB).
+async function fetchStatsForMatch(matchId: string, home: string, away: string): Promise<LiveMatchStats | null> {
+  let corners: number | undefined, fouls: number | undefined, yellow = 0, red = 0;
+  try {
+    const espn = await espnMatchService.getMatchStats(matchId, 'fifa.world');
+    if (espn) {
+      if (espn.corners.total > 0) corners = espn.corners.total;
+      if (espn.fouls.total   > 0) fouls   = espn.fouls.total;
+      yellow = espn.yellowCards.total; red = espn.redCards.total;
+    }
+  } catch {}
+  try {
+    const sdb = await sportsDbService.getMatchStats(matchId, home, away);
+    if (sdb?.hasData) {
+      if (corners == null && sdb.corners.total > 0) corners = sdb.corners.total;
+      if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
+      yellow = Math.max(yellow, sdb.yellowCards.total);
+      red    = Math.max(red, sdb.redCards.total);
+    }
+  } catch {}
+  if (corners == null && fouls == null && yellow === 0 && red === 0) return null;
+  return { corners, fouls, yellowCards: yellow, redCards: red };
+}
 
 interface Props { visible: boolean; onClose: () => void }
 
@@ -123,8 +149,11 @@ export default function AccuracyModal({ visible, onClose }: Props) {
       setSeeding(true);
       await seedHistoricalData();
       setSeeding(false);
-      data = await getAccuracyStats();
     }
+    // Re-verify all matches with REAL stats (córners/tarjetas/faltas, red=card)
+    // so the accuracy % reflects reality, not score-only verification.
+    await reVerifyAllMatches(fetchStatsForMatch);
+    data = await getAccuracyStats();
     setStats(data); setLoading(false);
     Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   };
