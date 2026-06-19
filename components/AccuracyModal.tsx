@@ -6,10 +6,11 @@ import {
 import { getAccuracyStats, seedHistoricalData, reVerifyAllMatches, AccuracyStats, MarketStat, LiveMatchStats } from '../services/predictionTracker';
 import { espnMatchService } from '../services/espnMatchService';
 import { sportsDbService } from '../services/sportsDbService';
+import { apiFootballService } from '../services/apiFootballService';
 import { colors } from '../constants/colors';
 
-// Resolve real corners/cards/fouls for a stored match (ESPN + TheSportsDB).
-async function fetchStatsForMatch(matchId: string, home: string, away: string): Promise<LiveMatchStats | null> {
+// Resolve real corners/cards/fouls for a stored match (ESPN + TheSportsDB + API-Football).
+async function fetchStatsForMatch(matchId: string, home: string, away: string, dateISO: string): Promise<LiveMatchStats | null> {
   let corners: number | undefined, fouls: number | undefined, yellow = 0, red = 0;
   try {
     const espn = await espnMatchService.getMatchStats(matchId, 'fifa.world');
@@ -26,6 +27,17 @@ async function fetchStatsForMatch(matchId: string, home: string, away: string): 
       if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
       yellow = Math.max(yellow, sdb.yellowCards.total);
       red    = Math.max(red, sdb.redCards.total);
+    }
+  } catch {}
+  try {
+    if (apiFootballService.isEnabled() && (corners == null || fouls == null)) {
+      const af = await apiFootballService.getMatchStats(home, away, dateISO);
+      if (af?.hasData) {
+        if (corners == null && af.corners.total > 0) corners = af.corners.total;
+        if (fouls   == null && af.fouls.total   > 0) fouls   = af.fouls.total;
+        yellow = Math.max(yellow, af.yellowCards.total);
+        red    = Math.max(red, af.redCards.total);
+      }
     }
   } catch {}
   if (corners == null && fouls == null && yellow === 0 && red === 0) return null;

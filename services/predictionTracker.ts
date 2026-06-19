@@ -565,12 +565,12 @@ export async function updateActualResult(
 // statsFetcher resolves corners/cards/fouls for a match; pass from the UI layer
 // (which has access to ESPN + TheSportsDB) to avoid circular imports here.
 export async function reVerifyAllMatches(
-  statsFetcher?: (matchId: string, home: string, away: string) => Promise<LiveMatchStats | null>
+  statsFetcher?: (matchId: string, home: string, away: string, dateISO: string) => Promise<LiveMatchStats | null>
 ): Promise<number> {
   try {
     const { data } = await supabase
       .from('match_predictions')
-      .select('match_id,home_team,away_team,home_score,away_score,predicted_outcome,predictions_json')
+      .select('match_id,home_team,away_team,match_date,home_score,away_score,predicted_outcome,predictions_json')
       .not('actual_outcome', 'is', null);
     if (!data || data.length === 0) return 0;
 
@@ -583,7 +583,7 @@ export async function reVerifyAllMatches(
 
       let stats: LiveMatchStats | null = null;
       if (statsFetcher) {
-        try { stats = await statsFetcher(row.match_id, row.home_team, row.away_team); } catch {}
+        try { stats = await statsFetcher(row.match_id, row.home_team, row.away_team, row.match_date ?? ''); } catch {}
       }
       const verified = stats
         ? verifyPredictionsWithStats(rawPreds, hs, as_, stats)

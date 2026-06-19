@@ -26,6 +26,7 @@ import SmartAddBetModal, { type SmartMatch } from '@/components/SmartAddBetModal
 import { savePrediction, updateActualResult, outcomeFromProbs, buildConfidentPredictions, buildDynamicPredictions, verifyPredictions, verifyPredictionsWithStats, LiveMatchStats } from '@/services/predictionTracker';
 import { diffAndLogAnalysis } from '@/services/predictionChangeLog';
 import { sportsDbService } from '@/services/sportsDbService';
+import { apiFootballService } from '@/services/apiFootballService';
 import { getWcSquad } from '@/services/wcSquads';
 import { getVenueWeather } from '@/services/weatherService';
 
@@ -70,6 +71,19 @@ async function fetchCombinedStats(
       if (fouls   == null && sdb.fouls.total   > 0) fouls   = sdb.fouls.total;
       yellow = Math.max(yellow, sdb.yellowCards.total);
       red    = Math.max(red, sdb.redCards.total);
+    }
+  } catch {}
+
+  // API-Football (most detailed; only if EXPO_PUBLIC_API_FOOTBALL_KEY is configured)
+  try {
+    if (apiFootballService.isEnabled() && (corners == null || fouls == null)) {
+      const af = await apiFootballService.getMatchStats(match.homeTeam, match.awayTeam, match.date);
+      if (af?.hasData) {
+        if (corners == null && af.corners.total > 0) corners = af.corners.total;
+        if (fouls   == null && af.fouls.total   > 0) fouls   = af.fouls.total;
+        yellow = Math.max(yellow, af.yellowCards.total);
+        red    = Math.max(red, af.redCards.total);
+      }
     }
   } catch {}
 

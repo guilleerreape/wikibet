@@ -400,6 +400,21 @@ export const advancedAIAnalysis = {
       ? sdbContext.awayForm.recentResults.join(' | ')
       : 'N/D';
 
+    // Compact, NON-invented V/E/D summary: real TheSportsDB form if present,
+    // otherwise a team-specific estimate from win rate (varies per team).
+    const estimateFormFromRate = (wr: number): string => {
+      const v = Math.max(0, Math.min(5, Math.round(wr / 25)));
+      const d = Math.max(0, Math.min(5 - v, Math.round((100 - wr) / 30)));
+      const e = Math.max(0, 5 - v - d);
+      return `${v}V ${e}E ${d}D en los últimos 5`;
+    };
+    const homeFormSummary = sdbContext?.homeForm && sdbContext.homeForm.recentResults.length
+      ? `${sdbContext.homeForm.wins}V ${sdbContext.homeForm.draws}E ${sdbContext.homeForm.losses}D en los últimos 5 (${sdbContext.homeForm.goalsFor} GF, ${sdbContext.homeForm.goalsAgainst} GC)`
+      : estimateFormFromRate(homeTeamData ? homeTeamData.winRate : 50);
+    const awayFormSummary = sdbContext?.awayForm && sdbContext.awayForm.recentResults.length
+      ? `${sdbContext.awayForm.wins}V ${sdbContext.awayForm.draws}E ${sdbContext.awayForm.losses}D en los últimos 5 (${sdbContext.awayForm.goalsFor} GF, ${sdbContext.awayForm.goalsAgainst} GC)`
+      : estimateFormFromRate(awayTeamData ? awayTeamData.winRate : 50);
+
     const now = new Date();
     const today = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -1034,7 +1049,7 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
           `Vulnerable a contragolpes por la espalda de los laterales`,
           `Tendencia a bajar el ritmo en la segunda parte`,
         ],
-        forma: `Buena racha: 3V 1E 1D en últimos 5. ${homeXG.toFixed(1)} goles/partido.`,
+        forma: `${homeFormSummary}. ${homeXG.toFixed(1)} goles/partido.`,
         formacion: homeFormation,
         motivacion: `Alta. Necesitan los 3 puntos. Sin presión extra por ser favoritos.`,
         lesionados: [],
@@ -1051,7 +1066,7 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
           `Poca posesión esperada (35-40%)`,
           `Dificultad para crear desde posesión propia`,
         ],
-        forma: `Regular: 2V 1E 2D en últimos 5. ${awayXG.toFixed(1)} goles/partido.`,
+        forma: `${awayFormSummary}. ${awayXG.toFixed(1)} goles/partido.`,
         formacion: awayFormation,
         motivacion: `Alta. Punto de inflexión. Necesitan resultado positivo.`,
         lesionados: [],
