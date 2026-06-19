@@ -200,12 +200,46 @@ class AnalysisErrorBoundary extends Component<
 }
 
 // ─── Panel APUESTA DE LA IA (upcoming + played) ───────────────────────────────
-function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: AdvancedMatchAnalysis }) {
+function AiBetPanel({ match, analysis, matchEvents: evts = [] }: {
+  match: CompetitionMatch;
+  analysis: AdvancedMatchAnalysis;
+  matchEvents?: MatchEvent[];
+}) {
   if (!analysis?.predicciones) return null;
   const isFinished = match.status === 'finished';
   const isLive     = match.status === 'live';
   const hg = match.homeScore ?? 0;
   const ag = match.awayScore ?? 0;
+
+  // ─── Live stats from events array (goals from match score, cards from events) ─
+  const liveGoals    = hg + ag;
+  const liveYellows  = evts.filter(e => e.type === 'yellow').length;
+  const liveReds     = evts.filter(e => e.type === 'red').length;
+  const liveTotalCards = liveYellows + liveReds;
+
+  // Returns a small contextual text showing current state of a market
+  const getLiveProgress = (market: string): string | null => {
+    if (!isLive && !isFinished) return null;
+    const g = liveGoals;
+    const c = liveTotalCards;
+    switch (market) {
+      case 'over0_5':
+      case 'under1_5':      return `Actualmente ${g} gol${g !== 1 ? 'es' : ''}`;
+      case 'over1_5':
+      case 'over2_5':
+      case 'under2_5':
+      case 'over3_5':
+      case 'under3_5':      return `${g} gol${g !== 1 ? 'es' : ''} marcados`;
+      case 'btts':          return `Local ${hg} · Visit. ${ag}`;
+      case 'btts_no':       return `Local ${hg} · Visit. ${ag}`;
+      case 'cards_over2_5':
+      case 'cards_over3_5':
+      case 'cards_under3_5': return c > 0
+          ? `Actualmente ${c} tarjeta${c !== 1 ? 's' : ''} (${liveYellows}🟨${liveReds > 0 ? ` ${liveReds}🟥` : ''})`
+          : `Sin tarjetas aún`;
+      default: return null;
+    }
+  };
 
   const preds    = buildConfidentPredictions(analysis.predicciones);
   const verified = (isFinished || isLive)
@@ -265,7 +299,9 @@ function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: Ad
       </View>
 
       {/* Prediction rows */}
-      {verified.map((p, i) => (
+      {verified.map((p, i) => {
+        const liveProgress = getLiveProgress(p.market);
+        return (
         <View key={p.market} style={[aib.predRow, i < verified.length - 1 && aib.predBorder]}>
           <Text style={aib.predEmoji}>{p.emoji}</Text>
           <View style={aib.predInfo}>
@@ -274,10 +310,15 @@ function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: Ad
             }]}>
               {p.label}
             </Text>
+            {liveProgress && (
+              <Text style={aib.liveProgress}>{liveProgress}</Text>
+            )}
             <PredBar prob={p.prob} hit={isFinished || isLive ? p.hit : undefined} />
           </View>
           {(isFinished || isLive) && p.hit !== undefined ? (
             <Text style={aib.hitIcon}>{p.hit ? '✅' : '❌'}</Text>
+          ) : (isFinished || isLive) && p.hit === undefined ? (
+            <Text style={aib.hitIcon}>⏳</Text>
           ) : (
             <View style={[aib.probChip, p.prob && p.prob >= 80 && aib.probChipHot]}>
               <Text style={[aib.probChipText, p.prob && p.prob >= 80 && aib.probChipTextHot]}>
@@ -286,7 +327,8 @@ function AiBetPanel({ match, analysis }: { match: CompetitionMatch; analysis: Ad
             </View>
           )}
         </View>
-      ))}
+        );
+      })}
 
       {/* Footer note */}
       <View style={aib.footer}>
@@ -325,6 +367,7 @@ const aib = StyleSheet.create({
   predEmoji:  { fontSize: 16, width: 22 },
   predInfo:   { flex: 1, gap: 4 },
   predLabel:  { fontSize: 12, fontWeight: '600', color: '#d1d5db' },
+  liveProgress: { fontSize: 10, color: '#6ee7b7', fontStyle: 'italic', marginTop: 1 },
   barBg: {
     height: 6, backgroundColor: '#1e293b', borderRadius: 3,
     overflow: 'hidden', position: 'relative', justifyContent: 'center',
@@ -2017,7 +2060,7 @@ Escribe un comentario corto (3-4 frases) en ESPAÑOL sobre cómo fue el partido 
         </Section>
 
         {/* APUESTA DE LA IA — between Conclusion and 1X2 */}
-        <AiBetPanel match={selectedMatch} analysis={analysis} />
+        <AiBetPanel match={selectedMatch} analysis={analysis} matchEvents={matchEvents} />
 
         {/* 1X2 */}
         <Section icon="🎯" title="PROBABILIDADES 1X2" accent="#22c55e" delay={160}>

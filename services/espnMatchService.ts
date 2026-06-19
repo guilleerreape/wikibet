@@ -699,4 +699,62 @@ export const espnMatchService = {
     }
     return all;
   },
+
+  // ─── Obtener estadísticas reales del partido (corners, tarjetas, faltas) ───────
+  // Requiere el ESPN event ID numérico (no el ID interno de WikiBet).
+  // Útil para verificar pronósticos de corners/tarjetas/faltas post-partido.
+  async getMatchStats(espnEventId: string, leagueSlug = 'fifa.world'): Promise<MatchStats | null> {
+    try {
+      const url = `${ESPN_BASE}/${leagueSlug}/summary?event=${espnEventId}`;
+      const r = await fetchWithTimeout(url, 8000);
+      if (!r.ok) return null;
+      const data = await r.json();
+
+      // ESPN devuelve data.boxscore.teams = [ {team, statistics:[...]}, {team, statistics:[...]} ]
+      const teams: any[] = data?.boxscore?.teams ?? [];
+      if (teams.length < 2) return null;
+
+      const getStat = (statsArr: any[], ...names: string[]): number => {
+        for (const name of names) {
+          const s = statsArr.find((x: any) =>
+            (x.name ?? '').toLowerCase() === name.toLowerCase() ||
+            (x.abbreviation ?? '').toLowerCase() === name.toLowerCase()
+          );
+          if (s) return parseInt(s.displayValue ?? '0', 10) || 0;
+        }
+        return 0;
+      };
+
+      const homeStats: any[] = teams[0]?.statistics ?? [];
+      const awayStats: any[]  = teams[1]?.statistics ?? [];
+
+      const homeYellow = getStat(homeStats, 'yellowCards', 'yellowcrds', 'yellowcard');
+      const awayYellow = getStat(awayStats, 'yellowCards', 'yellowcrds', 'yellowcard');
+      const homeRed    = getStat(homeStats, 'redCards', 'redcrds', 'redcard');
+      const awayRed    = getStat(awayStats, 'redCards', 'redcrds', 'redcard');
+      const homeCorner = getStat(homeStats, 'cornerKicks', 'corners', 'cornerkick');
+      const awayCorner = getStat(awayStats, 'cornerKicks', 'corners', 'cornerkick');
+      const homeFouls  = getStat(homeStats, 'fouls', 'foulsConceded', 'totalfouls');
+      const awayFouls  = getStat(awayStats, 'fouls', 'foulsConceded', 'totalfouls');
+
+      return {
+        corners:     { home: homeCorner, away: awayCorner, total: homeCorner + awayCorner },
+        yellowCards: { home: homeYellow, away: awayYellow, total: homeYellow + awayYellow },
+        redCards:    { home: homeRed,    away: awayRed,    total: homeRed + awayRed },
+        fouls:       { home: homeFouls,  away: awayFouls,  total: homeFouls + awayFouls },
+        // Total cards for betting = yellows + reds (each red counts as 1 card event)
+        totalCards:  homeYellow + awayYellow + homeRed + awayRed,
+      };
+    } catch {
+      return null;
+    }
+  },
 };
+
+export interface MatchStats {
+  corners:     { home: number; away: number; total: number };
+  yellowCards: { home: number; away: number; total: number };
+  redCards:    { home: number; away: number; total: number };
+  fouls:       { home: number; away: number; total: number };
+  totalCards:  number; // yellows + reds (for betting purposes)
+}

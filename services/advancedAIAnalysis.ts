@@ -659,10 +659,13 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     "goleadores": {
       "primer_goleador": {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
       "anytime": [
-        {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
-        {"nombre": "nombre real", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
-        {"nombre": "nombre real", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0},
-        {"nombre": "nombre real", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0}
+        {"nombre": "nombre real delantero ${homeTeam}", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real mediapunta ${homeTeam}", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real extremo ${homeTeam}", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real delantero ${awayTeam}", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real mediapunta ${awayTeam}", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real extremo ${awayTeam}", "equipo": "${awayTeam}", "probabilidad": 0, "cuota": 0.0},
+        {"nombre": "nombre real comodin ${homeTeam}", "equipo": "${homeTeam}", "probabilidad": 0, "cuota": 0.0}
       ]
     },
     "resultados_exactos": [
@@ -934,31 +937,43 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
     const totalXG1H = homeXG1H + awayXG1H;
     const totalXG2H = homeXG2H + awayXG2H;
 
-    // Goleadores anytime
+    // Goleadores anytime (hasta 6-7 jugadores: 3-4 local + 2-3 visitante)
     const anytime: GoleadorPrediccion[] = [
       ...(homeTopScorer ? [{
         nombre: homeTopScorer.name,
         equipo: homeTeam,
         probabilidad: Math.min(60, Math.round(golesLines.over0_5.local * 0.5)),
-        cuota: parseFloat((100 / Math.min(60, golesLines.over0_5.local * 0.5) * 0.93).toFixed(2)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(60, golesLines.over0_5.local * 0.5)) * 0.93).toFixed(2)),
       }] : []),
       ...(homeTop3[1] ? [{
         nombre: homeTop3[1].name,
         equipo: homeTeam,
         probabilidad: Math.min(45, Math.round(golesLines.over0_5.local * 0.35)),
-        cuota: parseFloat((100 / Math.min(45, golesLines.over0_5.local * 0.35) * 0.93).toFixed(2)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(45, golesLines.over0_5.local * 0.35)) * 0.93).toFixed(2)),
+      }] : []),
+      ...(homeTop3[2] ? [{
+        nombre: homeTop3[2].name,
+        equipo: homeTeam,
+        probabilidad: Math.min(30, Math.round(golesLines.over0_5.local * 0.22)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(30, golesLines.over0_5.local * 0.22)) * 0.93).toFixed(2)),
       }] : []),
       ...(awayTopScorer ? [{
         nombre: awayTopScorer.name,
         equipo: awayTeam,
         probabilidad: Math.min(52, Math.round(golesLines.over0_5.visitante * 0.47)),
-        cuota: parseFloat((100 / Math.min(52, golesLines.over0_5.visitante * 0.47) * 0.93).toFixed(2)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(52, golesLines.over0_5.visitante * 0.47)) * 0.93).toFixed(2)),
       }] : []),
       ...(awayTop3[1] ? [{
         nombre: awayTop3[1].name,
         equipo: awayTeam,
         probabilidad: Math.min(35, Math.round(golesLines.over0_5.visitante * 0.32)),
-        cuota: parseFloat((100 / Math.min(35, golesLines.over0_5.visitante * 0.32) * 0.93).toFixed(2)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(35, golesLines.over0_5.visitante * 0.32)) * 0.93).toFixed(2)),
+      }] : []),
+      ...(awayTop3[2] ? [{
+        nombre: awayTop3[2].name,
+        equipo: awayTeam,
+        probabilidad: Math.min(22, Math.round(golesLines.over0_5.visitante * 0.20)),
+        cuota: parseFloat((100 / Math.max(5, Math.min(22, golesLines.over0_5.visitante * 0.20)) * 0.93).toFixed(2)),
       }] : []),
     ].filter(g => g.probabilidad > 0);
 
@@ -1198,25 +1213,25 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
           equipoVisitante_2H_marcar: Math.round(golesLines.over0_5.visitante * 0.55),
         },
         mercadosJugadores: {
-          asistencias: anytime.slice(0, 4).map(g => ({
+          asistencias: anytime.slice(0, 6).map(g => ({
             nombre: g.nombre,
             equipo: g.equipo === homeTeam ? 'local' as const : 'visitante' as const,
             probabilidad: Math.round(g.probabilidad * 0.6),
             cuota: parseFloat((g.cuota * 1.8).toFixed(2)),
           })),
-          scorerOAsistente: anytime.slice(0, 4).map(g => ({
+          scorerOAsistente: anytime.slice(0, 6).map(g => ({
             nombre: g.nombre,
             equipo: g.equipo === homeTeam ? 'local' as const : 'visitante' as const,
             probabilidad: Math.min(85, Math.round(g.probabilidad * 1.4)),
             cuota: parseFloat((g.cuota * 0.7).toFixed(2)),
           })),
-          golesporJugadorPrimeraMitad: anytime.slice(0, 4).map(g => ({
+          golesporJugadorPrimeraMitad: anytime.slice(0, 6).map(g => ({
             nombre: g.nombre,
             equipo: g.equipo === homeTeam ? 'local' as const : 'visitante' as const,
             probabilidad: Math.round(g.probabilidad * 0.4),
             cuota: parseFloat((g.cuota * 2.2).toFixed(2)),
           })),
-          golesporJugadorSegundaMitad: anytime.slice(0, 4).map(g => ({
+          golesporJugadorSegundaMitad: anytime.slice(0, 6).map(g => ({
             nombre: g.nombre,
             equipo: g.equipo === homeTeam ? 'local' as const : 'visitante' as const,
             probabilidad: Math.round(g.probabilidad * 0.5),
@@ -1225,14 +1240,14 @@ DEVUELVE SOLO JSON VÁLIDO. Las alineaciones van PRIMERO en el JSON. Enteros 0-1
         },
       },
       tactico: {
-        sistemaLocal: `${homeFormation} – posesión y presión alta`,
-        sistemaVisitante: `${awayFormation} – bloque medio y transición`,
-        enfoque: `${homeTeam} dominará posesión (58-62%) buscando abrir espacios con combinaciones rápidas. ${awayTeam} defenderá en bloque bajo y atacará en transición con velocidad por bandas.`,
-        ventajaTactica: `${homeTeam} tiene superioridad en el mediocampo. La ventaja táctica estará en los duelos entre los centrocampistas creativos y la presión sobre el balón.`,
+        sistemaLocal: `${homeFormation} – presión estructurada desde mediocampo`,
+        sistemaVisitante: `${awayFormation} – organización defensiva y transiciones`,
+        enfoque: `${homeTeam} partirá con ventaja táctica en su sistema ${homeFormation}, buscando el control del juego por mediocampo. ${awayTeam} en ${awayFormation} dependerá de su organización defensiva y la velocidad en la transición ofensiva para crear ocasiones. El duelo clave estará en las segunda jugadas y en la presión en la salida de balón.`,
+        ventajaTactica: `${homeTeam} presenta mayores recursos ofensivos con xG estimado de ${homeXG.toFixed(1)} frente a ${awayXG.toFixed(1)} de ${awayTeam}. La ventaja diferencial dependerá de la efectividad en los momentos clave del partido.`,
         clavesDelPartido: [
-          `Control del mediocampo y duelos por la segunda jugada`,
-          `Eficacia en las transiciones ofensivas de ${awayTeam}`,
-          `Acciones a balón parado: corners y faltas laterales`,
+          `Dominio del mediocampo: quién controla las segundas jugadas`,
+          `Eficacia en transiciones ofensivas de ${awayTeam} vs línea defensiva de ${homeTeam}`,
+          `Balón parado: corners y faltas frontales como factor diferencial`,
         ],
       },
       factoresExternos: {

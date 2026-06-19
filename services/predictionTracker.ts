@@ -162,6 +162,15 @@ export function buildConfidentPredictions(predicciones: any): PredItem[] {
   return preds;
 }
 
+// ─── Real match stats (from ESPN summary API) ─────────────────────────────────
+export interface LiveMatchStats {
+  corners:    number;  // total corners
+  yellowCards:number;  // total yellow cards
+  redCards:   number;  // total red cards (each counts as 1 for betting total)
+  fouls:      number;  // total fouls
+  // totalCards = yellowCards + redCards
+}
+
 // ─── Verify predictions against actual score ──────────────────────────────────
 export function verifyPredictions(preds: PredItem[], hs: number, as_: number): PredItem[] {
   const total     = hs + as_;
@@ -193,6 +202,52 @@ export function verifyPredictions(preds: PredItem[], hs: number, as_: number): P
       case 'fouls_over20_5':
         return { ...p, hit: undefined }; // skip in accuracy until real stats available
       default:        hit = false;
+    }
+    return { ...p, hit };
+  });
+}
+
+// ─── Verify predictions with real match stats (corners, cards, fouls) ────────
+// Call this instead of verifyPredictions when ESPN stats are available.
+// Falls back gracefully for any market where stats are unavailable.
+export function verifyPredictionsWithStats(
+  preds: PredItem[],
+  hs: number,
+  as_: number,
+  stats: LiveMatchStats
+): PredItem[] {
+  const total     = hs + as_;
+  const actual1x2 = outcomeFromScore(hs, as_);
+  const totalCards = stats.yellowCards + stats.redCards; // each red = 1 card
+
+  return preds.map(p => {
+    let hit: boolean | undefined;
+    switch (p.market) {
+      case '1x2':            hit = p.value === actual1x2; break;
+      case 'over0_5':        hit = total > 0; break;
+      case 'over1_5':        hit = total > 1; break;
+      case 'over2_5':        hit = total > 2; break;
+      case 'under2_5':       hit = total < 3; break;
+      case 'over3_5':        hit = total > 3; break;
+      case 'under3_5':       hit = total < 4; break;
+      case 'under1_5':       hit = total < 2; break;
+      case 'btts':           hit = hs > 0 && as_ > 0; break;
+      case 'btts_no':        hit = !(hs > 0 && as_ > 0); break;
+      // Corners — now verifiable with real stats
+      case 'corners_over8_5':  hit = stats.corners > 8; break;
+      case 'corners_under8_5': hit = stats.corners <= 8; break;
+      case 'corners_over9_5':  hit = stats.corners > 9; break;
+      // Cards — yellows + reds count for total (red card = 1 card for betting)
+      case 'cards_over2_5':   hit = totalCards > 2; break;
+      case 'cards_over3_5':   hit = totalCards > 3; break;
+      case 'cards_under3_5':  hit = totalCards <= 3; break;
+      // Fouls
+      case 'fouls_over20_5':  hit = stats.fouls > 20; break;
+      // 1H markets: still can't verify without 1H-specific data
+      case 'local_score_1H':
+      case 'away_score_1H':
+        return { ...p, hit: undefined };
+      default: hit = false;
     }
     return { ...p, hit };
   });
